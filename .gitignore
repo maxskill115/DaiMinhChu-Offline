@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Reverse-engineering local artifacts
+*.apk
+*.aab
+*.obb
+*.dll
+*.so
+*.dex
+*.jar
+*.keystore
+*.jks
+
+# Decompiled/extracted game data
+apk_extract/
+decompiled/
+dump/
+assets_dump/
+original_client/
+
+# Local saves / DB
+*.db
+*.sqlite
+*.sqlite3
+local_data/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
