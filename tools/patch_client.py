@@ -177,9 +177,12 @@ def patch_apk(input_apk: Path, output_apk: Path, base_url: str) -> None:
 
         with zipfile.ZipFile(output_apk, "w") as dst:
             for info in src.infolist():
+                upper_name = info.filename.upper()
+                if upper_name.startswith("META-INF/") and upper_name.endswith((".RSA", ".DSA", ".EC", ".SF", ".MF")):
+                    # Original APK signatures become invalid after Assembly-CSharp.dll changes.
+                    continue
                 content = patched_assembly if info.filename == ASSEMBLY_PATH else src.read(info.filename)
-                # A rebuilt APK no longer has a valid original signature. Preserve archive
-                # metadata/compression where practical; signing is a separate step.
+                # Preserve archive metadata/compression where practical; signing is a separate step.
                 dst.writestr(info, content)
 
     print(f"Patched APK written to: {output_apk}")
