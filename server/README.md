@@ -2,13 +2,13 @@
 
 Prototype backend local cho client **Đại Minh Chủ Việt Nam 8.0.2**.
 
-Static reverse + server fixture hiện đã đi tới:
+Static reverse + server implementation hiện đi tới:
 
 ```text
 Login
  -> CheckUser
  -> GetUserInfo
- -> BeginCutsceneForm
+ -> BeginCutsceneForm / load save
  -> SelectStartNhanVat
  -> Home (Form 3)
  -> GiangHoForm (Form 4)
@@ -16,9 +16,10 @@ Login
  -> BattleForm (Form 7)
  -> BattleReplay 1v1 tối thiểu
  -> result panel
+ -> save star / unlock mission / reward bạc
 ```
 
-> **Chưa có client runtime confirmation.** Server/AES/fixture đã test local, nhưng APK Unity vẫn cần chạy thật trên Android/emulator để xác nhận toàn bộ flow.
+> **Client Android runtime vẫn PENDING.** Server/AES/save/progression đã test local, nhưng APK Unity vẫn cần chạy thật để xác nhận toàn bộ flow.
 
 ## Cài đặt
 
@@ -29,19 +30,13 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Dependency:
-
-```text
-cryptography>=42,<47
-```
-
 ## Unit test
 
 ```bat
 python -m unittest -v
 ```
 
-Hiện có 6 test, gồm AES, login URL, 3 nhân vật đầu và cấu trúc replay Giang Hồ tối thiểu/null-safe theo các dereference đã reverse.
+Hiện có **11 test**: AES, login URL, persist/reload nhân vật, unlock mission, JSON `Nhiemvu`, best-star + lượt đánh, khóa mission, hoàn thành chapter và BattleReplay null-safe.
 
 ## Chạy server
 
@@ -55,6 +50,7 @@ Mặc định:
 listen: http://0.0.0.0:8000
 User URL:   http://10.0.2.2:8000/Server/Webservice/User.asmx
 Battle URL: http://10.0.2.2:8000/Server/Webservice/Battle.asmx
+save:       server/local_data/save.json
 ```
 
 Health check:
@@ -65,14 +61,35 @@ http://127.0.0.1:8000/health
 
 ### Điện thoại thật / emulator khác
 
-`127.0.0.1` trong Android không phải PC. Đặt IP LAN của PC:
-
 ```bat
 set DMC_BASE_URL=http://192.168.1.10:8000
 python app.py
 ```
 
-Patcher APK cũng phải dùng cùng địa chỉ mà Android truy cập được.
+Patcher APK phải dùng cùng địa chỉ mà Android truy cập được.
+
+## Save local
+
+File mặc định:
+
+```text
+server/local_data/save.json
+```
+
+Override:
+
+```bat
+set DMC_SAVE_FILE=C:\DMC\save.json
+python app.py
+```
+
+Reset save:
+
+```bat
+python reset_save.py
+```
+
+Hiện save giữ nhân vật đã chọn, account cơ bản, bạc và tiến trình Giang Hồ.
 
 ## Endpoint hiện có
 
@@ -84,8 +101,6 @@ POST /Server/Webservice/User.asmx/SelectStartNhanVat
 POST /Server/Webservice/Battle.asmx/GiangHo
 ```
 
-Server match theo suffix nên cũng nhận `/Login`, `/CheckUser`, `/GiangHo`... khi test thủ công.
-
 Transport:
 
 ```text
@@ -93,11 +108,30 @@ request:  form data=<URL-escaped Base64 AES(JSON)>
 response: Base64 AES(JSON)
 ```
 
-AES: 128-bit CBC + PKCS7 với key/IV đã reverse từ `Assembly-CSharp.dll`.
+AES: 128-bit CBC + PKCS7 với key/IV reverse từ `Assembly-CSharp.dll`.
+
+## Progress Giang Hồ
+
+Client lưu mission progress trong:
+
+```text
+giangho.Nhiemvu = JSON string của List<HTTPNhiemVuGiangHoRecord>
+```
+
+Mỗi record:
+
+```text
+S = best star (0..3)
+T = số lượt đã đánh trong ngày
+```
+
+Độ dài list là ranh giới mission đã unlock. Khi thắng mission, server giữ best star, tăng `T`, thêm record `{S:0,T:0}` cho mission kế. Thắng mission cuối đặt `HoanThanh=1` để client mở chapter kế.
+
+Embedded `ConfigFile/GiangHo` xác nhận **92 chapter / 1405 mission**; server chỉ giữ structural mission counts, không lưu full config dump.
 
 ## Smoke test server thật
 
-Mở terminal 1:
+Terminal 1:
 
 ```bat
 python app.py
@@ -106,54 +140,26 @@ python app.py
 Terminal 2:
 
 ```bat
-python smoke_client.py
-```
-
-Hoặc chọn hero:
-
-```bat
 python smoke_client.py --hero NV_SoLuuHuong
 ```
 
-Script gửi **request AES thật qua HTTP** theo chuỗi:
+Chuỗi request AES thật:
 
 ```text
-Login
- -> CheckUser
- -> GetUserInfo
- -> SelectStartNhanVat
- -> Battle.asmx/GiangHo
+Login -> CheckUser -> GetUserInfo -> SelectStartNhanVat -> Battle.asmx/GiangHo
 ```
 
-Kết quả local đã xác nhận:
+Đã test local thành công. Sau battle đầu, save có dạng logic:
 
 ```text
-ErrorCode=1 cho toàn chuỗi
-GiangHo: DoiThang=0, star=3, Hiep1 có 1 lượt đánh
+hero = NV_SoLuuHuong
+Bac = 10100
+GiangHo[0].Nhiemvu = [{S:3,T:1},{S:0,T:0}]
 ```
 
-Đây là **server smoke test**, không được nhầm với client Android runtime test.
+Đây là **SERVER TESTED**, không phải Android runtime confirmation.
 
-## Battle fixture hiện tại
-
-`/GiangHo` tạo trận deterministic đơn giản:
-
-```text
-Team1 = hero đã chọn
-Team2 = một hero config hợp lệ khác
-1 hiệp
-1 đòn đánh thường
-Team2 mất toàn bộ HP
-Team1 thắng 3 sao
-```
-
-`VoCong=""` cố ý dùng nhánh normal attack của client, tránh lookup config võ công. Các list mà client gọi `.Count`/`.Contains` không null-check (`Buffs`, `TrangThaiThuongTon`...) được gửi `[]`.
-
-`Reward` và `UpdateUserInfo.NhanVat` cũng được gửi vì result panel dereference trực tiếp các object này.
-
-**GiangHo progress chưa persist**; milestone này ưu tiên chứng minh replay compatibility trước.
-
-## Bước test quan trọng tiếp theo
+## Bước quan trọng tiếp theo
 
 Chạy APK đã patch + local server và mong đợi:
 
@@ -161,19 +167,16 @@ Chạy APK đã patch + local server và mong đợi:
 POST ...User.asmx/Login
 POST ...User.asmx/CheckUser
 POST ...User.asmx/GetUserInfo
-POST ...User.asmx/SelectStartNhanVat
+[BeginCutscene hoặc Home nếu đã có save]
+POST ...User.asmx/SelectStartNhanVat   # chỉ lần đầu
 [Home]
 [Giang Hồ]
 POST ...Battle.asmx/GiangHo
-[BattleForm phát trận]
+[BattleForm phát replay]
 [result panel]
+[quay Giang Hồ: mission kế mở + sao hiển thị]
 ```
 
 Nếu fail: giữ server console log + `adb logcat`, reverse đúng request/exception cuối cùng.
 
-Xem thêm:
-
-- [`../docs/protocol/login.md`](../docs/protocol/login.md)
-- [`../docs/protocol/first-character.md`](../docs/protocol/first-character.md)
-- [`../docs/protocol/giangho-battle.md`](../docs/protocol/giangho-battle.md)
-- [`../HANDOFF.md`](../HANDOFF.md)
+Xem thêm: `docs/protocol/login.md`, `docs/protocol/first-character.md`, `docs/protocol/giangho-battle.md`, `HANDOFF.md`.
