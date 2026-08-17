@@ -1,27 +1,67 @@
 # Local compatibility server
 
-Prototype backend tối thiểu cho client Đại Minh Chủ 8.0.2.
+Prototype backend local cho client **Đại Minh Chủ Việt Nam 8.0.2**.
+
+Hiện server đã đi được về mặt **static reverse** tới flow:
+
+```text
+Login
+  -> CheckUser
+  -> GetUserInfo
+  -> BeginCutsceneForm
+  -> chọn 1 trong 3 nhân vật đầu
+  -> SelectStartNhanVat
+  -> Home (Form 3)
+```
+
+> Lưu ý: flow trên đã được xác nhận từ IL/metadata của client và đã có fixture/server tương ứng, nhưng **chưa được xác nhận end-to-end trên Android thật/emulator**.
 
 ## Cài đặt
 
-```bash
+```bat
 cd server
 python -m venv .venv
-```
-
-Windows:
-
-```bat
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Chạy
+Dependency hiện tại:
 
-Mặc định server listen mọi interface ở port `8000`:
+```text
+cryptography>=42,<47
+```
+
+## Chạy test
+
+```bat
+python -m unittest -v
+```
+
+Test hiện kiểm tra:
+
+- AES encrypt/decrypt round-trip;
+- URL `User.asmx` được quảng bá đúng;
+- tài khoản mới bắt đầu với `NhanVat: []`;
+- cả 3 nhân vật khởi đầu đều sinh response hợp lệ;
+- mã nhân vật không hợp lệ bị từ chối.
+
+## Chạy server
 
 ```bat
 python app.py
+```
+
+Mặc định:
+
+```text
+listen: 0.0.0.0:8000
+advertised root: http://10.0.2.2:8000
+```
+
+Server tự chuẩn hóa advertised root thành:
+
+```text
+http://10.0.2.2:8000/Server/Webservice/User.asmx
 ```
 
 Health check:
@@ -30,45 +70,92 @@ Health check:
 http://127.0.0.1:8000/health
 ```
 
-## Khi client chạy trên emulator/điện thoại
+## Android Emulator / điện thoại thật
 
-`127.0.0.1` trong Android là chính thiết bị Android, không phải PC. Hãy quảng bá IP mà Android truy cập được, ví dụ IP LAN của PC:
+`127.0.0.1` bên trong Android là chính Android, không phải PC.
+
+### Android Emulator chuẩn
+
+Thông thường có thể dùng:
+
+```text
+10.0.2.2
+```
+
+nên mặc định hiện tại phù hợp cho kiểu emulator đó.
+
+### Điện thoại/tablet thật hoặc emulator khác
+
+Đặt `DMC_BASE_URL` thành IP LAN của PC, ví dụ:
 
 ```bat
 set DMC_BASE_URL=http://192.168.1.10:8000
 python app.py
 ```
 
-Hoặc với Android Emulator chuẩn có thể dùng gateway host phù hợp như `10.0.2.2` nếu môi trường đó hỗ trợ.
+Không cần tự thêm `/Server/Webservice/User.asmx`; server sẽ thêm nếu thiếu.
+
+Patcher client cũng phải dùng cùng địa chỉ mà Android truy cập được.
 
 ## Endpoint hiện có
 
-Prototype xử lý suffix path, nên cả hai kiểu đều được:
+Server match theo suffix path nên chấp nhận dạng đầy đủ như:
 
 ```text
-/Login
-/CheckUser
-/GetUserInfo
+POST /Server/Webservice/User.asmx/Login
+POST /Server/Webservice/User.asmx/CheckUser
+POST /Server/Webservice/User.asmx/GetUserInfo
+POST /Server/Webservice/User.asmx/SelectStartNhanVat
 ```
 
-và:
+và dạng rút gọn:
 
 ```text
-/Server/Webservice/User.asmx/Login
-/Server/Webservice/User.asmx/CheckUser
-/Server/Webservice/User.asmx/GetUserInfo
+POST /Login
+POST /CheckUser
+POST /GetUserInfo
+POST /SelectStartNhanVat
 ```
 
-Request được decrypt AES và log ra console. Response được encode lại đúng transport AES của client.
-
-## Trạng thái
-
-Server hiện chỉ nhằm milestone đầu:
+Request được xử lý theo đúng transport client:
 
 ```text
-Login -> CheckUser -> GetUserInfo -> nhánh tài khoản chưa có NhanVat
+form data=<URL-escaped Base64 AES(JSON)>
 ```
 
-Nó chưa phải GS hoàn chỉnh và chưa có battle/save thật.
+Response trả:
 
-Xem schema/reverse tại [`../docs/protocol/login.md`](../docs/protocol/login.md).
+```text
+Base64 AES(JSON)
+```
+
+AES: 128-bit CBC + PKCS7, key/IV đã reverse từ `Assembly-CSharp.dll`.
+
+## Nhân vật khởi đầu đã xác nhận từ config client
+
+```text
+NV_PhongThanhDuong
+NV_LenhHoXung
+NV_SoLuuHuong
+```
+
+`/SelectStartNhanVat` hiện tạo một hero ID `1` và đặt `DoiHinh.Slot1 = 1` để client có dữ liệu tối thiểu đi tiếp tới Home.
+
+## Bước test thật tiếp theo
+
+Khi chạy APK đã patch + server local, log mong đợi là:
+
+```text
+POST .../Login
+POST .../CheckUser
+POST .../GetUserInfo
+POST .../SelectStartNhanVat
+```
+
+Sau đó cần kiểm tra client có vào được Home hay có request/schema mới phát sinh.
+
+Xem thêm:
+
+- [`../docs/protocol/login.md`](../docs/protocol/login.md)
+- [`../docs/protocol/first-character.md`](../docs/protocol/first-character.md)
+- [`../HANDOFF.md`](../HANDOFF.md)
