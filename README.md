@@ -1,51 +1,68 @@
 # DaiMinhChu-Offline
 
-Dự án nghiên cứu/phục dựng **Đại Minh Chủ Việt Nam 8.0.2** để chạy local/offline bằng cách tái tạo backend tương thích với client gốc.
+Dự án nghiên cứu/phục dựng **Đại Minh Chủ Việt Nam 8.0.2** để chạy local/offline bằng backend tương thích với client gốc.
 
 ## Trạng thái hiện tại
 
-APK đã được xác định là **Unity 4.x + Mono**, còn `Assembly-CSharp.dll` với nhiều symbol C# nguyên tên.
+APK: **Unity 4.x + Mono**, còn `Assembly-CSharp.dll` với nhiều symbol C# nguyên tên.
 
-Đã reverse và dựng prototype cho flow:
+Đã reverse + implement server prototype cho:
 
 ```text
 Patched LoginForm
-    -> /Login
-    -> chọn server Offline
-    -> /CheckUser
-    -> /GetUserInfo
-    -> BeginCutsceneForm
-    -> chọn Phong Thanh Dương / Lệnh Hồ Xung / Sở Lưu Hương
-    -> /SelectStartNhanVat
-    -> Home (Form 3)
+ -> /Login
+ -> /CheckUser
+ -> /GetUserInfo
+ -> BeginCutsceneForm
+ -> chọn Phong Thanh Dương / Lệnh Hồ Xung / Sở Lưu Hương
+ -> /SelectStartNhanVat
+ -> Home (Form 3)
+ -> Giang Hồ (Form 4)
+ -> Battle.asmx/GiangHo
+ -> BattleForm (Form 7)
+ -> BattleReplay 1v1 / 1 hiệp / 1 đòn thường
+ -> result panel
 ```
 
-Transport game đã xác định là **HTTP + JSON bọc AES-128-CBC/PKCS7**.
+Transport đã xác định là **HTTP + JSON bọc AES-128-CBC/PKCS7**.
 
-Core config nhân vật/trang bị/võ công/Giang Hồ... đã được xác nhận là có sẵn trong Unity `Resources` của APK; remote `LoginCfg` chỉ phục vụ cập nhật config và có thể để `null` trong prototype.
+Core config nhân vật/trang bị/võ công/Giang Hồ... có sẵn trong Unity `Resources`; local `/Login` có thể để `LoginCfg=null` và bỏ remote config update.
 
-> Flow trên hiện đã được xác nhận bằng static reverse + fixture/test server. **Chưa được xác nhận end-to-end trên Android/emulator thật.** Runtime test là milestone tiếp theo.
+Server đã được **unit-test + smoke-test bằng request AES thật qua HTTP**, gồm cả `Battle.asmx/GiangHo`.
+
+> **Android/client runtime vẫn PENDING.** Chưa được coi là đã vào game/phát trận thành công cho tới khi chạy APK thật với server + `adb logcat`.
 
 ## Thành phần repo
 
-- [`HANDOFF.md`](HANDOFF.md) — nguồn trạng thái chính, **bắt buộc đọc trước khi tiếp tục ở chat mới**.
-- [`docs/protocol/login.md`](docs/protocol/login.md) — login / CheckUser / GetUserInfo / AES transport.
-- [`docs/protocol/first-character.md`](docs/protocol/first-character.md) — BeginCutsceneForm và `/SelectStartNhanVat`.
-- [`server/`](server/) — Python local compatibility server.
-- [`tools/patch_client.py`](tools/patch_client.py) — patch đúng APK 8.0.2 để bỏ Soha SDK login và trỏ login server về local.
+- [`HANDOFF.md`](HANDOFF.md) — nguồn trạng thái chính; chat mới đọc file này trước.
+- [`docs/protocol/login.md`](docs/protocol/login.md) — login / CheckUser / GetUserInfo / AES.
+- [`docs/protocol/first-character.md`](docs/protocol/first-character.md) — BeginCutsceneForm / SelectStartNhanVat.
+- [`docs/protocol/giangho-battle.md`](docs/protocol/giangho-battle.md) — Giang Hồ, Battle.asmx, DTO và replay tối thiểu.
+- [`server/`](server/) — Python local compatibility server + unit/smoke tests.
+- [`tools/patch_client.py`](tools/patch_client.py) — patch APK 8.0.2 bỏ Soha SDK login và trỏ server về local.
 
-## Mục tiêu offline ưu tiên
+## Milestone tiếp theo
 
 ```text
-Login
- -> profile/save local
- -> nhân vật/đội hình/trang bị/võ công
- -> Giang Hồ
- -> BattleReplay
- -> tiến trình offline ổn định
+APK patched + Android/emulator
+ -> xác nhận Login/Home runtime
+ -> mở Giang Hồ
+ -> gửi Battle.asmx/GiangHo
+ -> client phát replay
+ -> result panel
 ```
 
-Không ưu tiên giai đoạn đầu: nạp tiền, Soha account thật, chat, bang hội online, PvP thật, leaderboard, liên server.
+Sau khi runtime pass mới chuyển sang:
+
+```text
+save/load local
+ -> GiangHo progress
+ -> đội hình/trang bị/võ công
+ -> battle generator thật
+ -> reward/progression
+```
+
+Không ưu tiên giai đoạn đầu: nạp tiền, Soha account thật, chat, bang hội/PvP online, leaderboard, liên server.
 
 ## Không lưu trong repo
 
