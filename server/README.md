@@ -2,19 +2,23 @@
 
 Prototype backend local cho client **Đại Minh Chủ Việt Nam 8.0.2**.
 
-Hiện server đã đi được về mặt **static reverse** tới flow:
+Static reverse + server fixture hiện đã đi tới:
 
 ```text
 Login
-  -> CheckUser
-  -> GetUserInfo
-  -> BeginCutsceneForm
-  -> chọn 1 trong 3 nhân vật đầu
-  -> SelectStartNhanVat
-  -> Home (Form 3)
+ -> CheckUser
+ -> GetUserInfo
+ -> BeginCutsceneForm
+ -> SelectStartNhanVat
+ -> Home (Form 3)
+ -> GiangHoForm (Form 4)
+ -> Battle.asmx/GiangHo
+ -> BattleForm (Form 7)
+ -> BattleReplay 1v1 tối thiểu
+ -> result panel
 ```
 
-> Lưu ý: flow trên đã được xác nhận từ IL/metadata của client và đã có fixture/server tương ứng, nhưng **chưa được xác nhận end-to-end trên Android thật/emulator**.
+> **Chưa có client runtime confirmation.** Server/AES/fixture đã test local, nhưng APK Unity vẫn cần chạy thật trên Android/emulator để xác nhận toàn bộ flow.
 
 ## Cài đặt
 
@@ -25,25 +29,19 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Dependency hiện tại:
+Dependency:
 
 ```text
 cryptography>=42,<47
 ```
 
-## Chạy test
+## Unit test
 
 ```bat
 python -m unittest -v
 ```
 
-Test hiện kiểm tra:
-
-- AES encrypt/decrypt round-trip;
-- URL `User.asmx` được quảng bá đúng;
-- tài khoản mới bắt đầu với `NhanVat: []`;
-- cả 3 nhân vật khởi đầu đều sinh response hợp lệ;
-- mã nhân vật không hợp lệ bị từ chối.
+Hiện có 6 test, gồm AES, login URL, 3 nhân vật đầu và cấu trúc replay Giang Hồ tối thiểu/null-safe theo các dereference đã reverse.
 
 ## Chạy server
 
@@ -54,14 +52,9 @@ python app.py
 Mặc định:
 
 ```text
-listen: 0.0.0.0:8000
-advertised root: http://10.0.2.2:8000
-```
-
-Server tự chuẩn hóa advertised root thành:
-
-```text
-http://10.0.2.2:8000/Server/Webservice/User.asmx
+listen: http://0.0.0.0:8000
+User URL:   http://10.0.2.2:8000/Server/Webservice/User.asmx
+Battle URL: http://10.0.2.2:8000/Server/Webservice/Battle.asmx
 ```
 
 Health check:
@@ -70,92 +63,117 @@ Health check:
 http://127.0.0.1:8000/health
 ```
 
-## Android Emulator / điện thoại thật
+### Điện thoại thật / emulator khác
 
-`127.0.0.1` bên trong Android là chính Android, không phải PC.
-
-### Android Emulator chuẩn
-
-Thông thường có thể dùng:
-
-```text
-10.0.2.2
-```
-
-nên mặc định hiện tại phù hợp cho kiểu emulator đó.
-
-### Điện thoại/tablet thật hoặc emulator khác
-
-Đặt `DMC_BASE_URL` thành IP LAN của PC, ví dụ:
+`127.0.0.1` trong Android không phải PC. Đặt IP LAN của PC:
 
 ```bat
 set DMC_BASE_URL=http://192.168.1.10:8000
 python app.py
 ```
 
-Không cần tự thêm `/Server/Webservice/User.asmx`; server sẽ thêm nếu thiếu.
-
-Patcher client cũng phải dùng cùng địa chỉ mà Android truy cập được.
+Patcher APK cũng phải dùng cùng địa chỉ mà Android truy cập được.
 
 ## Endpoint hiện có
-
-Server match theo suffix path nên chấp nhận dạng đầy đủ như:
 
 ```text
 POST /Server/Webservice/User.asmx/Login
 POST /Server/Webservice/User.asmx/CheckUser
 POST /Server/Webservice/User.asmx/GetUserInfo
 POST /Server/Webservice/User.asmx/SelectStartNhanVat
+POST /Server/Webservice/Battle.asmx/GiangHo
 ```
 
-và dạng rút gọn:
+Server match theo suffix nên cũng nhận `/Login`, `/CheckUser`, `/GiangHo`... khi test thủ công.
+
+Transport:
 
 ```text
-POST /Login
-POST /CheckUser
-POST /GetUserInfo
-POST /SelectStartNhanVat
+request:  form data=<URL-escaped Base64 AES(JSON)>
+response: Base64 AES(JSON)
 ```
 
-Request được xử lý theo đúng transport client:
+AES: 128-bit CBC + PKCS7 với key/IV đã reverse từ `Assembly-CSharp.dll`.
+
+## Smoke test server thật
+
+Mở terminal 1:
+
+```bat
+python app.py
+```
+
+Terminal 2:
+
+```bat
+python smoke_client.py
+```
+
+Hoặc chọn hero:
+
+```bat
+python smoke_client.py --hero NV_SoLuuHuong
+```
+
+Script gửi **request AES thật qua HTTP** theo chuỗi:
 
 ```text
-form data=<URL-escaped Base64 AES(JSON)>
+Login
+ -> CheckUser
+ -> GetUserInfo
+ -> SelectStartNhanVat
+ -> Battle.asmx/GiangHo
 ```
 
-Response trả:
+Kết quả local đã xác nhận:
 
 ```text
-Base64 AES(JSON)
+ErrorCode=1 cho toàn chuỗi
+GiangHo: DoiThang=0, star=3, Hiep1 có 1 lượt đánh
 ```
 
-AES: 128-bit CBC + PKCS7, key/IV đã reverse từ `Assembly-CSharp.dll`.
+Đây là **server smoke test**, không được nhầm với client Android runtime test.
 
-## Nhân vật khởi đầu đã xác nhận từ config client
+## Battle fixture hiện tại
+
+`/GiangHo` tạo trận deterministic đơn giản:
 
 ```text
-NV_PhongThanhDuong
-NV_LenhHoXung
-NV_SoLuuHuong
+Team1 = hero đã chọn
+Team2 = một hero config hợp lệ khác
+1 hiệp
+1 đòn đánh thường
+Team2 mất toàn bộ HP
+Team1 thắng 3 sao
 ```
 
-`/SelectStartNhanVat` hiện tạo một hero ID `1` và đặt `DoiHinh.Slot1 = 1` để client có dữ liệu tối thiểu đi tiếp tới Home.
+`VoCong=""` cố ý dùng nhánh normal attack của client, tránh lookup config võ công. Các list mà client gọi `.Count`/`.Contains` không null-check (`Buffs`, `TrangThaiThuongTon`...) được gửi `[]`.
 
-## Bước test thật tiếp theo
+`Reward` và `UpdateUserInfo.NhanVat` cũng được gửi vì result panel dereference trực tiếp các object này.
 
-Khi chạy APK đã patch + server local, log mong đợi là:
+**GiangHo progress chưa persist**; milestone này ưu tiên chứng minh replay compatibility trước.
+
+## Bước test quan trọng tiếp theo
+
+Chạy APK đã patch + local server và mong đợi:
 
 ```text
-POST .../Login
-POST .../CheckUser
-POST .../GetUserInfo
-POST .../SelectStartNhanVat
+POST ...User.asmx/Login
+POST ...User.asmx/CheckUser
+POST ...User.asmx/GetUserInfo
+POST ...User.asmx/SelectStartNhanVat
+[Home]
+[Giang Hồ]
+POST ...Battle.asmx/GiangHo
+[BattleForm phát trận]
+[result panel]
 ```
 
-Sau đó cần kiểm tra client có vào được Home hay có request/schema mới phát sinh.
+Nếu fail: giữ server console log + `adb logcat`, reverse đúng request/exception cuối cùng.
 
 Xem thêm:
 
 - [`../docs/protocol/login.md`](../docs/protocol/login.md)
 - [`../docs/protocol/first-character.md`](../docs/protocol/first-character.md)
+- [`../docs/protocol/giangho-battle.md`](../docs/protocol/giangho-battle.md)
 - [`../HANDOFF.md`](../HANDOFF.md)
