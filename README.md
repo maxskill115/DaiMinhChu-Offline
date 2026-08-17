@@ -13,8 +13,7 @@ Patched LoginForm
  -> /Login
  -> /CheckUser
  -> /GetUserInfo
- -> BeginCutsceneForm
- -> chọn Phong Thanh Dương / Lệnh Hồ Xung / Sở Lưu Hương
+ -> BeginCutsceneForm hoặc load nhân vật đã save
  -> /SelectStartNhanVat
  -> Home (Form 3)
  -> Giang Hồ (Form 4)
@@ -22,13 +21,16 @@ Patched LoginForm
  -> BattleForm (Form 7)
  -> BattleReplay 1v1 / 1 hiệp / 1 đòn thường
  -> result panel
+ -> save sao / mở mission kế / bạc
 ```
 
-Transport đã xác định là **HTTP + JSON bọc AES-128-CBC/PKCS7**.
+Transport: **HTTP + JSON bọc AES-128-CBC/PKCS7**.
 
-Core config nhân vật/trang bị/võ công/Giang Hồ... có sẵn trong Unity `Resources`; local `/Login` có thể để `LoginCfg=null` và bỏ remote config update.
+Core config nhân vật/trang bị/võ công/Giang Hồ... có sẵn trong Unity `Resources`; `/Login` local có thể để `LoginCfg=null` để bỏ remote config update.
 
-Server đã được **unit-test + smoke-test bằng request AES thật qua HTTP**, gồm cả `Battle.asmx/GiangHo`.
+Server hiện có **JSON save local** cho nhân vật, account cơ bản và tiến trình Giang Hồ. `giangho.Nhiemvu` đã xác nhận là JSON string; `S` là best-star, `T` là lượt đã đánh. Embedded config có **92 chapter / 1405 mission**, server chỉ giữ structural mission counts.
+
+Server đã được **unit-test + encrypted HTTP smoke-test**, gồm save/reload và `Battle.asmx/GiangHo`.
 
 > **Android/client runtime vẫn PENDING.** Chưa được coi là đã vào game/phát trận thành công cho tới khi chạy APK thật với server + `adb logcat`.
 
@@ -38,29 +40,24 @@ Server đã được **unit-test + smoke-test bằng request AES thật qua HTTP
 - [`docs/protocol/login.md`](docs/protocol/login.md) — login / CheckUser / GetUserInfo / AES.
 - [`docs/protocol/first-character.md`](docs/protocol/first-character.md) — BeginCutsceneForm / SelectStartNhanVat.
 - [`docs/protocol/giangho-battle.md`](docs/protocol/giangho-battle.md) — Giang Hồ, Battle.asmx, DTO và replay tối thiểu.
-- [`server/`](server/) — Python local compatibility server + unit/smoke tests.
+- [`server/state.py`](server/state.py) — JSON save + progression.
+- [`server/`](server/) — Python compatibility server + unit/smoke tests.
 - [`tools/patch_client.py`](tools/patch_client.py) — patch APK 8.0.2 bỏ Soha SDK login và trỏ server về local.
 
-## Milestone tiếp theo
+## Milestone quan trọng tiếp theo
 
 ```text
 APK patched + Android/emulator
  -> xác nhận Login/Home runtime
  -> mở Giang Hồ
- -> gửi Battle.asmx/GiangHo
+ -> client gửi Battle.asmx/GiangHo
  -> client phát replay
  -> result panel
+ -> quay lại Giang Hồ và thấy sao + mission kế mở
+ -> restart server/game và xác nhận save được load lại
 ```
 
-Sau khi runtime pass mới chuyển sang:
-
-```text
-save/load local
- -> GiangHo progress
- -> đội hình/trang bị/võ công
- -> battle generator thật
- -> reward/progression
-```
+Sau runtime pass: mở rộng đội hình/trang bị/võ công, reward/progression chuẩn hơn và battle generator thật.
 
 Không ưu tiên giai đoạn đầu: nạp tiền, Soha account thật, chat, bang hội/PvP online, leaderboard, liên server.
 
