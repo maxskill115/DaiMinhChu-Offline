@@ -1,72 +1,39 @@
 # HANDOFF — DaiMinhChu-Offline
 
-> **ĐỌC FILE NÀY TRƯỚC KHI TIẾP TỤC Ở CHAT MỚI.** Đây là nguồn trạng thái chính của dự án. Sau mỗi mốc kỹ thuật quan trọng phải cập nhật lại HANDOFF để không phụ thuộc vào lịch sử chat.
+> **ĐỌC FILE NÀY TRƯỚC KHI TIẾP TỤC Ở CHAT MỚI.** Đây là nguồn trạng thái chính của dự án. Sau mỗi mốc kỹ thuật quan trọng phải cập nhật lại HANDOFF.
 
 **Last updated:** 2026-08-18 (UTC+7)
 
 ## 1. Mục tiêu
 
-Phục dựng **Đại Minh Chủ Việt Nam 8.0.2** để chơi local/offline, ưu tiên giữ client/UI/assets gốc. Hướng hiện tại: tái tạo backend tương thích thay vì cần GS gốc.
+Phục dựng **Đại Minh Chủ Việt Nam 8.0.2** để chơi local/offline, ưu tiên giữ client/UI/assets gốc. Hướng hiện tại là tái tạo backend tương thích thay vì cần GS gốc.
 
 Ưu tiên:
 
 ```text
-Login
- -> user/tướng/đội hình/trang bị/võ công
- -> Giang Hồ
- -> BattleReplay
- -> progression/save local
+Login -> user/tướng/đội hình -> Giang Hồ -> BattleReplay -> progression/save
 ```
 
-Chưa ưu tiên: nạp tiền, Soha account thật, chat, bang hội/PvP online, liên server, leaderboard/payment.
+Chưa ưu tiên: nạp tiền, Soha account thật, chat, bang hội/PvP online, liên server, leaderboard.
 
 ## 2. Repo / APK
 
-Repo: `maxskill115/DaiMinhChu-Offline`, branch `main`, hiện public. Không commit APK gốc, full asset/config dump, credential hay keystore.
+Repo: `maxskill115/DaiMinhChu-Offline`, branch `main`, hiện public.
 
-File chính:
-
-```text
-README.md
-HANDOFF.md
-.gitignore
-
-docs/protocol/login.md
-docs/protocol/first-character.md
-docs/protocol/giangho-battle.md
-
-server/app.py
-server/crypto.py
-server/requirements.txt
-server/test_server.py
-server/smoke_client.py
-server/README.md
-
-tools/patch_client.py
-```
+Không commit APK gốc, full asset/config dump, credential hay keystore.
 
 APK mẫu:
 
 ```text
 Đại Minh Chủ (Dai Minh Chu)_8.0.2_apkcombo.com.apk
-size:    52,568,975 bytes
-SHA256:  2ff6b4db2177dc1362c20866750a48371f283a79a40335d3293a26e39e7e4194
+size: 52,568,975 bytes
+SHA256: 2ff6b4db2177dc1362c20866750a48371f283a79a40335d3293a26e39e7e4194
 package: vn.sohagame.dminhchu
 ```
 
-## 3. Engine/runtime — CONFIRMED STATIC
+## 3. Engine / protocol — CONFIRMED STATIC
 
-Unity 4.x + Mono, không phải IL2CPP-only:
-
-```text
-assets/bin/Data/Managed/Assembly-CSharp.dll
-lib/armeabi-v7a/libunity.so
-lib/armeabi-v7a/libmono.so
-```
-
-`Assembly-CSharp.dll` = `2,425,856` bytes; nhiều symbol C# còn nguyên nên reverse IL/metadata thuận lợi.
-
-## 4. Network / AES — CONFIRMED STATIC
+Unity 4.x + Mono; `Assembly-CSharp.dll` còn nhiều symbol C#.
 
 Login URL gốc:
 
@@ -77,126 +44,62 @@ http://login.minhchu.sohagame.vn/Server/Webservice/User.asmx
 Transport:
 
 ```text
-LitJson JSON
- -> AES encrypt
- -> Base64
- -> WWW.EscapeURL
- -> POST body: data=<escaped_ciphertext>
- -> UnityEngine.WWW
-```
-
-Response:
-
-```text
-WWW.text -> AES decrypt -> JSON -> JsonMapper.ToObject<T>()
+LitJson JSON -> AES -> Base64 -> WWW.EscapeURL -> POST data=<cipher>
+response -> AES decrypt -> LitJson
 ```
 
 AES:
 
 ```text
-AES/Rijndael-128
-CBC
-PKCS7
-UTF-8
-Key = IV
-HEX: 03051f0205060315061705202a1f5620
-Base64: AwUfAgUGAxUGFwUgKh9WIA==
+AES/Rijndael-128 CBC PKCS7 UTF-8
+Key = IV = 03051f0205060315061705202a1f5620
 ```
 
-Repo dùng `server/crypto.py` + `cryptography`.
+## 4. Core config trong APK — CONFIRMED STATIC
 
-## 5. Core config nằm sẵn trong APK — CONFIRMED STATIC, rất quan trọng
-
-`GameManager.Awake()` load Unity `Resources` trước login:
+`GameManager.Awake()` load trước login các Unity Resources:
 
 ```text
+ConfigFile/NhanVat
 ConfigFile/TrangBi
 ConfigFile/VoCong
-ConfigFile/NhanVat
 ConfigFile/GiangHo
 ConfigFile/Other
 ConfigFile/ChanKhi
 ConfigFile/VatPhamTieuThu
 ConfigFile/HuyetChien
-ConfigFile/GoiVatPhamVIP
-ConfigFile/DanhSonTamBao
 ConfigFile/KimCham
 ConfigFile/LongChau
-ConfigFile/TextFilter
-Localization/Vietnamese
+...
 ```
 
-Sau đó `ConfigManager.ReadAllCfg(...)`.
+=> local `/Login` có thể trả `LoginCfg=null` để bỏ remote config update mà core gameplay config vẫn tồn tại.
 
-=> `/Login` có thể trả `LoginCfg=null` để bỏ remote config update mà core gameplay config vẫn còn trong APK.
+Đã parse `ConfigFile/NhanVat` khoảng 333 nhân vật. Không commit dump gốc.
 
-Đã parse `ConfigFile/NhanVat`, khoảng 333 nhân vật; không commit full dump.
+## 5. Login / first character — CONFIRMED STATIC + SERVER IMPLEMENTED
 
-## 6. Login / first character — CONFIRMED STATIC + SERVER IMPLEMENTED
+`tools/patch_client.py` đã patch đúng APK SHA trên:
 
-### `/Login`
+1. login URL sang local;
+2. `LoginForm.OnLoginBtnClick` bỏ `SohaSDKManager.Login()` và gọi trực tiếp `HTTP.Instance.Login(...)`.
 
-Success `ErrorCode == 1`; `11` = version không đủ/update.
-
-`GameManager.DownloadConfigAndCache()`:
+Flow:
 
 ```text
-if LoginResponse.LoginCfg == null:
-    LoginForm.OnLoginSuccess()
-    skip remote config download
+/Login
+ -> /CheckUser
+ -> /GetUserInfo
 ```
 
-### Bypass Soha SDK
+Nếu `NhanVat.Count==0` → Form 13 = `BeginCutsceneForm`.
 
-`tools/patch_client.py` đã patch:
-
-1. hard-coded login URL sang local;
-2. `LoginForm.OnLoginBtnClick` từ `SohaSDKManager.Login()` sang `HTTP.Instance.Login(...)`.
-
-Patcher chỉ nhận đúng SHA256 APK trên; IL sau patch đã disassemble lại đúng dự kiến.
-
-### `/CheckUser`
-
-Request `User, Token`; success trả `Aid, ServerID`. Prototype dùng server ID `1` + `ListUserServer=[1]` để tránh `/UserAppendServer`.
-
-### `/GetUserInfo`
-
-Request `Aid, Token, Property[]`. `LoadAllUserInfo()` yêu cầu 21 nhóm:
+Ba start hero:
 
 ```text
-account
-nhanVat
-trangBi
-voCong
-orb
-vatPhamTieuThu
-giaTriThoiGian
-doiHinh
-giangHo
-tanChuong
-honNhanVat
-mail
-banbe
-danhhieu
-danhson
-serverinfo
-lienminh
-kimcham
-moiruou
-longchau
-amkhi
-```
-
-Nếu `NhanVat.Count == 0` → Form index 13; nếu có tướng → Form 3.
-
-### Form 13 = `BeginCutsceneForm`
-
-Ba code nhân vật đầu:
-
-```text
-NV_PhongThanhDuong -> Phong Thanh Dương: Mau 260, Cong 284, Thu 155, NoiLuc 234
-NV_LenhHoXung      -> Lệnh Hồ Xung:      Mau 180, Cong 180, Thu 60,  NoiLuc 300
-NV_SoLuuHuong      -> Sở Lưu Hương:      Mau 250, Cong 150, Thu 160, NoiLuc 305
+NV_PhongThanhDuong -> Phong Thanh Dương, Mau260 Cong284 Thu155 NoiLuc234
+NV_LenhHoXung      -> Lệnh Hồ Xung,      Mau180 Cong180 Thu60  NoiLuc300
+NV_SoLuuHuong      -> Sở Lưu Hương,      Mau250 Cong150 Thu160 NoiLuc305
 ```
 
 `/SelectStartNhanVat` request:
@@ -207,86 +110,37 @@ Token string
 NhanVatCode string
 ```
 
-Response deserialize thành `HTTPGetUserInfoResponse`; success:
+Response là `HTTPGetUserInfoResponse`; success `UpdateData()` rồi đi Home/Form 3. Prototype dùng hero ID 1 + `DoiHinh.Slot1=1`.
+
+## 6. Home -> Giang Hồ — CONFIRMED STATIC
+
+`MenuGroup.OnGiangHoBtnClick()` đặt `GameManager.ActiveForm=4`; Form 4 = `GiangHoForm`.
+
+Mở Giang Hồ không cần request mạng ngay; UI dùng embedded `ConfigManager.giangHoCfgs` + `HTTP.UserInfo.Data`.
+
+User mới `GiangHo=[]` vẫn hợp lệ: client tự tạo record `{S:0,T:0}` cho mission đầu chapter 0.
+
+## 7. Battle.asmx/GiangHo — CONFIRMED STATIC
+
+Click mission gọi:
 
 ```text
-HTTP.UserInfo.UpdateData(response)
-BeginCutsceneForm.OnSelectCharacterComplete()
+HTTP.DanhGiangHo(...)
+POST <BattleURL>/GiangHo
 ```
 
-Prototype trả hero ID `1` + `DoiHinh.Slot1 = 1`, static trace sau cutscene đi tới **Home / Form 3**.
-
-Chi tiết: `docs/protocol/login.md`, `docs/protocol/first-character.md`.
-
-## 7. Home -> Giang Hồ — CONFIRMED STATIC
-
-`MenuGroup.OnGiangHoBtnClick()`:
+Request:
 
 ```text
-GameManager.ActiveForm = 4
-```
-
-Form 4 = `GiangHoForm`.
-
-Mở Giang Hồ **không cần request mạng ngay**; `GiangHoForm.OnActive()` sync dữ liệu local/config đã load.
-
-`GiangHoSlider` dựng chapter/stage từ `ConfigManager.giangHoCfgs`.
-
-### User mới với `GiangHo=[]` vẫn hợp lệ
-
-`GH_NhiemVuSlider.SyncWithNetworkData()` có nhánh khi:
-
-```text
-currentGiangHoIdx == HTTP.UserInfo.Data.GiangHo.Count
-```
-
-Client tự tạo record nhiệm vụ tạm:
-
-```text
-S = 0
-T = 0
-```
-
-=> prototype chưa cần giả progress Giang Hồ chỉ để hiện chapter đầu.
-
-## 8. Click nhiệm vụ / Battle.asmx — CONFIRMED STATIC
-
-`GH_NhiemVu_Item.OnBattleClick()` gọi:
-
-```text
-HTTP.DanhGiangHo(HTTP.WaitForDanhGiangHo, giangHoIdx, nhiemVuIdx)
-```
-
-`HTTPBattleGiangHoRequest` dùng public fields lowercase:
-
-```text
-aid        int32
-token      string
+aid int32
+token string
 giangHoIdx uint8
 nhiemVuIdx uint8
 ```
 
-Gửi tới:
+`BattleURL` = `User.asmx` đổi thành `Battle.asmx`.
 
-```text
-<BattleURL>/GiangHo
-```
-
-`BattleURL` client tạo bằng:
-
-```text
-User.asmx -> Battle.asmx
-```
-
-Ví dụ local:
-
-```text
-http://10.0.2.2:8000/Server/Webservice/Battle.asmx/GiangHo
-```
-
-### Response root
-
-`HTTPBattleGiangHoResponse`:
+Response root:
 
 ```text
 BattleReplay   KetQuaTranDau
@@ -295,345 +149,259 @@ giangHoIdx     uint8
 nhiemVuIdx     uint8
 star           uint8
 UpdateUserInfo HTTPGetUserInfoResponse
-ErrorCode      HTTP_ERROR_CODE
-ErrorMsg       string
+ErrorCode / ErrorMsg
 ```
 
-Success `ErrorCode == 1` → `GiangHoForm.OnReceiveBattleResult(BattleReplay)` →
+Success → Form 7 `BattleForm` → `PlayGame(replay,false)`.
+
+## 8. BattleReplay tối thiểu — CONFIRMED STATIC + SERVER TESTED
+
+DTO chính:
 
 ```text
-BattleForm.environment = 0   // GiangHo
-GameManager.ActiveForm = 7   // BattleForm
-BattleForm.PlayGame(replay, false)
+KetQuaTranDau: Team1, Team2, DoiThang, Hiep1/Hiep2/Hiep3
+HiepDau: DoiHinh1, DoiHinh2, LuotDau
+VoGia: Name, Mau, NoiLuc, Buffs, BuaChu, BiThuat
+LuotDau: DoiTanCong, NguoiTanCong, DanhSachThuongTon, VoCong
+ThuongTon: Value, TrangThaiThuongTon
 ```
 
-## 9. BattleReplay DTO — CONFIRMED STATIC
-
-`KetQuaTranDau`:
+Team enum:
 
 ```text
-BuaChuBiThuatMP1 List<VoCongBuffAll>
-BuaChuBiThuatMP2 List<VoCongBuffAll>
-DoiThang          TeamEnum
-Team1             Team
-Team2             Team
-Hiep1             HiepDau
-Hiep2             HiepDau
-Hiep3             HiepDau
+Team1=0
+Team2=1
 ```
 
-`Team`:
+`VoCong=""` dùng nhánh normal attack, tránh lookup skill config.
+
+Null-safety tối thiểu đã reverse: Team1/2, Hiep1, 2 đội hình, LuotDau, Buffs, DanhSachThuongTon và TrangThaiThuongTon phải non-null. Hiep2/Hiep3 có thể null.
+
+Server hiện tạo replay deterministic 1v1 / 1 hiệp / 1 đòn thường, Team1 thắng 3 sao.
+
+## 9. Progress Giang Hồ — PHÁT HIỆN MỚI, CONFIRMED STATIC
+
+Class:
 
 ```text
-Name string
-AccountID string
-DanhVong int
+giangho.GiangHoIndx int
+giangho.HoanThanh int
+giangho.Nhiemvu string
 ```
 
-`HiepDau`:
+`HTTPUserInfo.GetNhiemVuGiangHo()` gọi generic đã resolve chính xác:
 
 ```text
-DoiHinh1 List<VoGia>
-DoiHinh2 List<VoGia>
-LuotDau  List<LuotDau>
+LitJson.JsonMapper.ToObject<List<HTTPNhiemVuGiangHoRecord>>(Nhiemvu)
 ```
 
-`VoGia`:
+=> `Nhiemvu` là **JSON string chứa array**.
+
+Record:
 
 ```text
-Name string
-Mau int64
-NoiLuc float
-Buffs List<BuffValue>
-BuaChu List<BuffValue>
-BiThuat List<BuffValue>
+S byte = best star (0..3)
+T byte = số lượt đã đánh mission trong ngày
 ```
 
-`LuotDau`:
+`GH_NhiemVuSlider` dùng **độ dài array** làm ranh giới mission đã unlock. Ví dụ sau thắng mission 0:
+
+```json
+[{"S":3,"T":1},{"S":0,"T":0}]
+```
+
+Record thứ 2 mở mission 1.
+
+`HoanThanh>0` làm client mở chapter `GiangHoIndx+1`.
+
+Embedded `ConfigFile/GiangHo` đã parse:
 
 ```text
-DoiTanCong        TeamEnum
-NguoiTanCong      int
-DanhSachThuongTon List<ThuongTon>
-VoCong             string
+92 chapter
+1405 mission
+mission/chapter min=6 max=17
+chapter 0 có 6 mission
+chapter 1 có 7 mission
 ```
 
-`ThuongTon`:
+`server/state.py` giữ toàn bộ 92 mission-counts dạng structural integers, không lưu full config/dialogue.
+
+## 10. Save local — SERVER IMPLEMENTED + SERVER TESTED
+
+Mới thêm `server/state.py`.
+
+File save mặc định:
 
 ```text
-Value              int64
-TrangThaiThuongTon List<TrangThai>
+server/local_data/save.json
 ```
 
-### TeamEnum / normal attack
-
-Static branches xác nhận:
+Giữ:
 
 ```text
-Team1 = 0
-Team2 = 1
+hero_code / hero_level / hero_exp
+account: DisplayName, Level, Exp, ExpMax, Bac, Vang, Vip
+giangho[]: GiangHoIndx, HoanThanh, missions[{S,T}]
 ```
 
-Nếu `VoCong` null/empty → client dùng **normal attack**, không lookup config võ công.
+`/SelectStartNhanVat` persist hero ngay. Restart server → `/GetUserInfo` trả lại hero + `DoiHinh.Slot1=1`, nên theo static flow client đi thẳng Home thay vì chọn nhân vật lại.
 
-Normal attack unconditionally lấy `DanhSachThuongTon[0]`, nên list damage phải có ít nhất 1 item.
+Sau battle Giang Hồ:
 
-`BiTanCong` / `PlayImpact` gọi `.Contains(...)` trên `TrangThaiThuongTon`, nên list này không được null. Fixture dùng `[]`.
+1. validate mission đã unlock;
+2. `S=max(oldS,newStar)`;
+3. `T += 1`;
+4. thắng mission thường → append `{S:0,T:0}` để mở mission kế;
+5. thắng mission cuối → `HoanThanh=1`;
+6. cộng reward bạc;
+7. persist JSON;
+8. trả `UpdateUserInfo.Account/NhanVat/GiangHo`.
 
-Một số status suy ra từ branch client:
+Reset save:
+
+```bat
+cd server
+python reset_save.py
+```
+
+## 11. Server hiện tại
+
+File chính:
 
 ```text
-1 = BaoKich
-2 = NeDon
-3 = PhanKich
-5 = HoThe
+server/app.py       # DMCOffline/0.4
+server/state.py     # JSON save + GiangHo progression
+server/crypto.py
+server/test_server.py
+server/smoke_client.py
+server/reset_save.py
 ```
-
-### Minimum null-safe replay đã xác nhận
-
-Cần:
-
-```text
-Team1 != null
-Team2 != null
-Hiep1 != null
-Hiep1.DoiHinh1 có >=1 fighter
-Hiep1.DoiHinh2 có >=1 fighter
-Hiep1.LuotDau có >=1 turn
-VoGia.Name là key hợp lệ trong ConfigManager.nhanVatCfgs
-VoGia.Buffs != null
-DanhSachThuongTon có >=1 item
-TrangThaiThuongTon != null
-```
-
-`Hiep2/Hiep3` có thể null. Top-level BuaChu/BiThuat lists prototype gửi `[]`.
-
-Chi tiết: `docs/protocol/giangho-battle.md`.
-
-## 10. Battle result — CONFIRMED STATIC
-
-`BattleGiangHoResultPanel.SetResult()` coi:
-
-```text
-DoiThang == 0
-```
-
-là Team1/player thắng.
-
-`star`: 0 thua; 1/2/3 = thắng 1/2/3 sao.
-
-Result panel đọc trực tiếp:
-
-```text
-Reward.ExpMonPhai
-Reward.Bac
-UpdateUserInfo.NhanVat
-```
-
-nên `Reward` và `UpdateUserInfo` phải non-null.
-
-Khi đóng result, môi trường GiangHo gọi:
-
-```text
-HTTP.UserInfo.UpdateData(response.UpdateUserInfo)
-GameManager.ActiveForm = 4
-```
-
-và kiểm tra `Reward.Items`.
-
-## 11. Local server — SERVER IMPLEMENTED + SERVER TESTED
-
-`server/app.py` hiện version `DMCOffline/0.3`.
 
 Routes:
 
 ```text
-GET  /health
+GET /health
 POST /Login
 POST /CheckUser
 POST /GetUserInfo
 POST /SelectStartNhanVat
-POST /GiangHo   // suffix match, dùng Battle.asmx/GiangHo
+POST /Server/Webservice/Battle.asmx/GiangHo
 ```
 
-Server derive:
+## 12. Tests — SERVER TESTED
 
-```text
-PUBLIC_BATTLE_URL = PUBLIC_USER_URL.replace("User.asmx", "Battle.asmx")
-```
+Sau persistence/progression: **11 unit tests pass local**.
 
-Memory-only state:
-
-```text
-STATE = {"selected_hero": "NV_LenhHoXung"}
-```
-
-`/SelectStartNhanVat` cập nhật hero đã chọn. Chưa có persistent save.
-
-### Replay fixture hiện tại
-
-Deterministic 1v1:
-
-```text
-Team1 = hero đã chọn
-Team2 = một start hero hợp lệ khác
-1 hiệp
-1 đòn đánh thường
-Team2 mất toàn bộ HP
-DoiThang = 0
-star = 3
-Reward.Bac = 100
-Reward.ExpMonPhai = 10
-Reward.ExpNhanVat = 10
-Reward.Items = []
-UpdateUserInfo.NhanVat = hero ID 1
-```
-
-GiangHo progress **chưa persist**, cố ý để tập trung test compatibility trước.
-
-## 12. Tests — SERVER TESTED, KHÔNG PHẢI CLIENT RUNTIME
-
-### Unit tests
-
-`server/test_server.py`: 6 tests pass local:
+Bao gồm:
 
 ```text
 AES roundtrip
-User/Battle URL
-new user NhanVat empty
-3 start heroes
-invalid hero reject
-minimal GiangHo replay null-safe theo confirmed dereferences
+new account không có hero
+3 start heroes persist
+reload save trả hero + DoiHinh
+battle đầu mở mission kế
+Nhiemvu JSON đúng shape
+replay giữ best star + tăng T
+locked mission bị reject
+complete chapter 0 -> HoanThanh=1
+chapter 1 unlock sau chapter 0
+minimal BattleReplay null-safe
 ```
 
-### Encrypted HTTP smoke
-
-Đã gửi AES request thật qua local HTTP tới:
+Encrypted HTTP smoke pass:
 
 ```text
-/Server/Webservice/Battle.asmx/GiangHo
+Login -> CheckUser -> GetUserInfo -> SelectStartNhanVat -> Battle.asmx/GiangHo
 ```
 
-và decrypt response thành công:
+Kết quả test thực local sau battle đầu:
 
 ```text
 ErrorCode=1
+winner=0
 star=3
-DoiThang=0
-hero=NV_LenhHoXung
 turns=1
-Items=[]
+Nhiemvu=[{"S":3,"T":1},{"S":0,"T":0}]
+Bac=10100
+save.json được tạo thành công
 ```
 
-`server/smoke_client.py` test toàn chuỗi:
+**Đây vẫn là SERVER TESTED, không phải client runtime.**
 
-```text
-Login -> CheckUser -> GetUserInfo -> SelectStartNhanVat -> GiangHo
-```
-
-Kết quả local:
-
-```text
-[Login] ErrorCode=1
-[CheckUser] ErrorCode=1
-[GetUserInfo] ErrorCode=1
-[SelectStartNhanVat] ErrorCode=1
-[GiangHo] ErrorCode=1
-replay: winner=0 star=3 turns=1
-```
-
-**Đây là SERVER TESTED, chưa phải Unity/Android runtime.**
-
-## 13. Trạng thái chính xác hiện tại
+## 13. Trạng thái chính xác
 
 ```text
 CONFIRMED STATIC:
-  login -> first character -> Home -> GiangHo -> BattleForm -> replay/result panel
+  login -> first character -> Home -> GiangHo -> BattleForm -> result
+  + schema/semantics GiangHo progression
 
 SERVER IMPLEMENTED:
-  Login / CheckUser / GetUserInfo / SelectStartNhanVat / Battle.asmx/GiangHo
+  login/user/start hero/battle/save/progression
 
 SERVER TESTED:
-  AES + HTTP chain + minimal battle fixture
+  AES + HTTP chain + persistence + mission unlock
 
 CLIENT RUNTIME:
   PENDING
 ```
 
-Tuyệt đối không nói game đã login/vào Home/phát trận thành công trên Android cho tới khi có runtime log.
+Không được nói game đã vào Home/phát trận/hiện sao thành công trên Android cho tới khi có runtime log.
 
-## 14. Việc cần làm NGAY tiếp theo
+## 14. Việc cần làm NGAY ở chat tiếp theo
 
-### Ưu tiên số 1: runtime Android
+### Ưu tiên #1: runtime Android/emulator
 
-1. `cd server`
-2. cài requirements
-3. `python -m unittest -v`
-4. chạy `python app.py` với `DMC_BASE_URL` đúng IP PC mà Android truy cập được
-5. patch APK bằng `tools/patch_client.py` với cùng địa chỉ
-6. zipalign/sign/install APK
-7. mở game, nhập user/pass bất kỳ
-8. theo dõi server console + `adb logcat`
+1. clone/pull repo;
+2. `cd server` → `pip install -r requirements.txt`;
+3. `python -m unittest -v`;
+4. chạy `python app.py` với `DMC_BASE_URL` là địa chỉ PC Android truy cập được;
+5. patch đúng APK 8.0.2 bằng `tools/patch_client.py` với cùng URL;
+6. zipalign/sign/install APK;
+7. mở game, login bất kỳ;
+8. theo dõi server console + `adb logcat`.
 
-Expected:
+Expected lần đầu:
 
 ```text
-POST ...User.asmx/Login
-POST ...User.asmx/CheckUser
-POST ...User.asmx/GetUserInfo
-[BeginCutsceneForm]
-POST ...User.asmx/SelectStartNhanVat
-[Home]
-[Giang Hồ]
-POST ...Battle.asmx/GiangHo
-[BattleForm phát replay]
-[result panel]
+/Login
+/CheckUser
+/GetUserInfo
+BeginCutsceneForm
+/SelectStartNhanVat
+Home
+GiangHo
+/Battle.asmx/GiangHo
+BattleForm -> result
+quay GiangHo -> thấy 3 sao + mission kế mở
 ```
+
+Sau đó restart server/game để xác nhận `/GetUserInfo` load hero/progress từ `save.json` và đi thẳng Home.
 
 Nếu fail: lấy **request cuối + server log + adb logcat/stack** rồi reverse đúng điểm fail, không đoán.
 
-### Nếu chưa runtime test được
+### Nếu chưa runtime được
 
 Tiếp tục static theo thứ tự:
 
-1. reverse serialization `giangho.Nhiemvu` + progress update;
-2. dựng save/load JSON/SQLite;
-3. sau battle update star/progress/resource;
-4. sau đó mở rộng equipment/skill/formation và battle generator thật.
-
-Các field progress đã biết:
-
-```text
-giangho.GiangHoIndx int
-giangho.HoanThanh   int
-giangho.Nhiemvu     string
-HTTPNhiemVuGiangHoRecord.S byte
-HTTPNhiemVuGiangHoRecord.T byte
-```
-
-Cần xác nhận format string `Nhiemvu` trước khi implement persist.
+1. equipment/skill/formation schema cần cho Home;
+2. reward/EXP/level progression chuẩn hơn;
+3. battle generator dùng đội hình/stat/config thật.
 
 ## 15. Commit/mốc gần nhất
 
-Current main trước HANDOFF update này:
+Các mốc mới nhất trước HANDOFF update này:
 
 ```text
-f5abbd8d  Cập nhật milestone Giang Hồ và BattleReplay
-42ce749f  Cập nhật hướng dẫn smoke test Giang Hồ
-a5db4a1e  docs/protocol/giangho-battle.md
-a5c9c170  server/smoke_client.py
-e217d3b1  Battle.asmx/GiangHo replay tối thiểu
-```
-
-Các mốc trước:
-
-```text
-a1e861b3  handoff tới flow chọn nhân vật
-364f5362  server SelectStartNhanVat
-9483c920  cryptography
-a6499192  unit tests
-1a265ccf  xóa dmc_crypto.py
-5f5134f4  docs first-character
+4619fcf7  root README: save local
+533d8f4d  server README: progression
+3ff2979e  app v0.4 + tests + reset_save
+21b3fd91  state.py JSON save/progression
+20891385  handoff GiangHo/BattleReplay
+f5abbd8d  README BattleReplay
+42ce749f  server README smoke battle
+a5db4a1e  docs giangho-battle
+a5c9c170  smoke_client
+e217d3b1  minimal Battle.asmx/GiangHo
 ```
 
 ## 16. Quy tắc bắt buộc
@@ -641,4 +409,4 @@ a6499192  unit tests
 - Luôn phân biệt `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
 - Không commit APK/full asset dump.
 - Ưu tiên flow nhỏ, deterministic, testable.
-- **Sau mỗi mốc quan trọng phải cập nhật HANDOFF**; đây là yêu cầu trực tiếp của người dùng để chat mới tiếp tục được ngay.
+- **Sau mỗi mốc quan trọng phải cập nhật HANDOFF** để chat mới tiếp tục ngay, đúng yêu cầu người dùng.
