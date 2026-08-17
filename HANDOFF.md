@@ -1,60 +1,63 @@
 # HANDOFF — DaiMinhChu-Offline
 
-> File này là nguồn trạng thái chính để phiên ChatGPT sau có thể tiếp tục ngay mà không cần đọc lại toàn bộ lịch sử chat. Mỗi phiên làm việc phải cập nhật file này trước khi kết thúc hoặc sau mỗi mốc kỹ thuật quan trọng.
+> **Nguồn trạng thái chính của dự án.** Phiên ChatGPT mới phải đọc file này trước khi làm tiếp. Sau mỗi mốc kỹ thuật quan trọng hoặc trước khi kết thúc phiên, phải cập nhật HANDOFF để không phụ thuộc vào lịch sử chat.
 
-**Last updated:** 2026-08-18 00:23 (UTC+7)
+**Last updated:** 2026-08-18 (UTC+7)
 
 ## 1. Mục tiêu dự án
 
-Phục dựng **Đại Minh Chủ Việt Nam** (SohaGame / Hiker-Emobi) để có thể chơi lại ở chế độ local/offline phục vụ mục đích hoài niệm/nghiên cứu.
+Phục dựng **Đại Minh Chủ Việt Nam** (SohaGame / Hiker-Emobi) để chơi lại local/offline phục vụ hoài niệm/nghiên cứu, ưu tiên giữ client/UI/assets gốc.
 
-Mục tiêu ưu tiên, theo thứ tự:
+Mục tiêu ưu tiên:
 
-1. Cho APK gốc khởi động và vượt qua login/server cũ.
-2. Dựng local backend tương thích với client mà **không cần GS gốc** nếu khả thi.
-3. Load được user / đội hình / đệ tử / trang bị / võ công.
-4. Vào được Giang Hồ/phụ bản.
-5. Phục dựng battle response / BattleReplay đủ để client chạy trận.
-6. Lưu tiến trình local (SQLite/JSON).
-7. Chỉ sau khi phần offline cơ bản ổn mới xét tới các hệ thống phụ khác.
+1. Client vượt login/server đã đóng.
+2. Dựng backend local tương thích mà **không cần GS gốc** nếu khả thi.
+3. Load user / đệ tử / đội hình / trang bị / võ công.
+4. Vào Giang Hồ/phụ bản.
+5. Phục dựng battle response / `BattleReplay` để client phát trận.
+6. Save local bằng SQLite/JSON.
 
-Không ưu tiên: nạp tiền, Soha account thật, chat, bang hội online, PvP thật, liên server, leaderboard, payment.
+Không ưu tiên ở giai đoạn đầu: nạp tiền, Soha account thật, chat, bang hội online, PvP thật, liên server, leaderboard, payment.
 
-## 2. Repo
+## 2. Repository
 
-- Repository: `maxskill115/DaiMinhChu-Offline`
-- URL: `https://github.com/maxskill115/DaiMinhChu-Offline`
+- Repo: `maxskill115/DaiMinhChu-Offline`
 - Default branch: `main`
-- Trạng thái lúc khởi tạo: repo trống.
-- Lưu ý: repo hiện đang **public** theo metadata GitHub lúc 2026-08-18. Không đưa APK gốc, asset game đầy đủ, credential, key riêng tư hoặc dữ liệu có bản quyền không cần thiết lên repo.
+- Repo đang **public** tại thời điểm kiểm tra.
+- Không commit APK gốc, full asset dump, credential hay key riêng tư không cần thiết.
 
-## 3. APK mẫu đang phân tích
+File quan trọng:
 
-Tên file người dùng đã cung cấp:
+```text
+README.md
+HANDOFF.md
+.gitignore
+docs/protocol/login.md
+server/app.py
+server/dmc_crypto.py
+server/requirements.txt
+server/README.md
+tools/patch_client.py
+```
+
+## 3. APK mẫu
+
+Người dùng đã upload:
 
 `Đại Minh Chủ (Dai Minh Chu)_8.0.2_apkcombo.com.apk`
 
-Thông tin local trong phiên hiện tại:
+Thông tin xác nhận:
 
-- Kích thước: ~50.1 MiB (52,568,975 bytes)
+- Size: `52,568,975` bytes (~50.1 MiB)
 - SHA-256: `2ff6b4db2177dc1362c20866750a48371f283a79a40335d3293a26e39e7e4194`
-- Package đã thấy trong assembly: `vn.sohagame.dminhchu`
-- APK **không được commit lên repo**.
+- Package: `vn.sohagame.dminhchu`
+- APK không commit lên repo.
 
-## 4. Phát hiện đã xác nhận từ APK
+## 4. Engine/runtime — CONFIRMED
 
-### 4.1 Engine / runtime
+APK dùng **Unity 4.x + Mono**, không phải IL2CPP-only.
 
-Đã kiểm tra trực tiếp APK:
-
-- Unity 4.x, Mono runtime.
-- Có `assets/bin/Data/Managed/Assembly-CSharp.dll`
-- `Assembly-CSharp.dll` size: `2,425,856` bytes.
-- Có `lib/armeabi-v7a/libunity.so`
-- Có `lib/armeabi-v7a/libmono.so`
-- Không phải kiểu IL2CPP-only; đây là lợi thế lớn vì metadata C# còn nhiều tên class/method.
-
-Đường dẫn xác nhận:
+Có:
 
 ```text
 assets/bin/Data/Managed/Assembly-CSharp.dll
@@ -62,310 +65,588 @@ lib/armeabi-v7a/libunity.so
 lib/armeabi-v7a/libmono.so
 ```
 
-### 4.2 Endpoint/server cũ
+`Assembly-CSharp.dll` size: `2,425,856` bytes.
 
-Strings trong `Assembly-CSharp.dll` xác nhận:
+Nhiều class/method/field C# còn nguyên tên nên reverse thuận lợi.
+
+## 5. Kiến trúc network — CONFIRMED
+
+### 5.1 Base URL login gốc
+
+`HTTP::.ctor` hard-code:
 
 ```text
 http://login.minhchu.sohagame.vn/Server/Webservice/User.asmx
 ```
 
-Login Soha cũ:
+Các path được nối vào base URL:
+
+```text
+/Login
+/CheckUser
+/GetUserInfo
+...
+```
+
+### 5.2 HTTP transport
+
+`HTTP.SendRequest(url, json, callback, showLoading)`:
+
+```text
+JSON plaintext
+  -> AES Encrypt
+  -> Base64
+  -> WWW.EscapeURL
+  -> body UTF-8: data=<escaped_ciphertext>
+  -> UnityEngine.WWW(url, postBytes)
+```
+
+Response:
+
+```text
+www.text
+  -> AES.Decrypt
+  -> JSON plaintext
+  -> LitJson.JsonMapper.ToObject<T>
+```
+
+=> Đây là **HTTP + JSON có AES wrapper**, không phải bắt buộc GS TCP binary bí hiểm.
+
+## 6. AES — CONFIRMED
+
+Class `Aes` dùng `RijndaelManaged`:
+
+```text
+Mode      = CBC
+Padding   = PKCS7
+KeySize   = 128
+BlockSize = 128
+Encoding  = UTF-8
+```
+
+Default constructor dùng **cùng một 16-byte array làm Key và IV**.
+
+```text
+HEX:    03 05 1f 02 05 06 03 15 06 17 05 20 2a 1f 56 20
+Base64: AwUfAgUGAxUGFwUgKh9WIA==
+```
+
+Đã lấy trực tiếp từ RVA data `$$field-33` trong assembly.
+
+Repo đã có `server/dmc_crypto.py` dùng key/IV này.
+
+## 7. Login flow — CONFIRMED
+
+### 7.1 `HTTPLoginRequest`
+
+Fields/properties:
+
+```text
+User        : string
+Pass        : string
+AccessToken : string
+Platform    : string
+Version     : int32
+```
+
+`HTTP.Login(callback,user,pass)` set:
+
+```text
+User
+Pass
+Version = GameManager.VERSION
+```
+
+rồi:
+
+```text
+JsonMapper.ToJson(request)
+POST LoginURL + "/Login"
+```
+
+### 7.2 `HTTPLoginResponse`
+
+Schema chính:
+
+```text
+ListUserServer    : List<int>
+ErrorCode         : HTTP_ERROR_CODE
+Token             : string
+UserId            : string
+SohaToken         : string
+Servers           : List<ServerInfo>
+ErrorMsg          : string
+UrlUpdateAndroid  : string
+UrlIphoneAppstore : string
+UrlIphoneJb       : string
+UrlWPJb           : string
+LoginCfg          : LoginConfig
+```
+
+`ServerInfo`:
+
+```text
+ServerID : int32
+Name     : string
+Url      : string
+Status   : string
+```
+
+### 7.3 ErrorCode
+
+`WaitForLogin` xác nhận:
+
+```text
+ErrorCode == 1  -> success
+ErrorCode == 11 -> VERSION_KHONG_DU / update popup
+```
+
+=> local mock dùng `ErrorCode: 1`.
+
+### 7.4 Bỏ download config server cũ
+
+`GameManager.DownloadConfigAndCache` có logic:
+
+```text
+if LoginResponse.LoginCfg == null:
+    LoginForm.OnLoginSuccess()
+    skip remote config bundle download
+```
+
+Đây là phát hiện rất quan trọng.
+
+=> Prototype `/Login` trả:
+
+```json
+"LoginCfg": null
+```
+
+để vào form chọn server mà không tải config remote.
+
+## 8. Soha SDK login — CONFIRMED
+
+APK còn flow Soha HTTPS:
 
 ```text
 https://soap.soha.vn/api/a/GET/auth/login?app_id=ba4b944aee28ea8b5c675ad0542f97f3&email={0}&password={1}&gver=2.0.0&sdkver=0.0.0&clientname=sohagame
 ```
 
-Các string liên quan:
+`LoginForm.OnLoginBtnClick` bản Android thực tế gọi:
 
 ```text
-/Login
-/GetUserInfo
+SohaSDKManager.Login()
 ```
 
-### 4.3 Class/API đáng chú ý
+và Java bridge gọi `RequestLoginSoha`.
 
-Tên class/method còn đọc được trong assembly, ví dụ:
+Đây là blocker nếu để nguyên client.
+
+### Bypass đã viết
+
+`tools/patch_client.py` đã patch IL `LoginForm.OnLoginBtnClick` thành flow trực tiếp:
 
 ```text
-HTTPLoginRequest
-HTTPLoginResponse
-HTTPGetUserInfoRequest
-HTTPGetUserInfoResponse
+HTTP.Instance.Login(
+    new OnRequest(HTTP.Instance.WaitForLogin),
+    accountInput.text,
+    passInput.text
+)
+```
+
+=> bỏ Java Soha SDK cho nút login.
+
+Patcher cũng sửa hard-coded `HTTP.loginURL` sang URL local do người chạy chỉ định.
+
+Patcher chỉ chấp nhận APK có SHA-256 đúng bản 8.0.2 đang nghiên cứu để tránh patch nhầm version.
+
+## 9. `/CheckUser` — CONFIRMED
+
+`HTTP.CheckUser(callback, serverUrl)`:
+
+```text
+LobbyURL = serverUrl
+request.User  = HTTP.UserInfo.User
+request.Token = HTTP.UserInfo.AccessToken
+POST LobbyURL + "/CheckUser"
+```
+
+`HTTPCheckUserRequest`:
+
+```text
+User  : string
+Token : string
+```
+
+`HTTPCheckUserResponse` quan trọng:
+
+```text
+LoginMessage       : List<string>
+EventAnGaLuotCount : int32
+ErrorCode          : HTTP_ERROR_CODE
+Aid                : int32
+UserInfo           : HTTPGetUserInfoResponse
+ErrorMsg           : string
+ServerID           : int32
+```
+
+Success `ErrorCode == 1`.
+
+Khi success:
+
+```text
+HTTP.UserInfo.AID = response.Aid
+SelectServerForm.OnLobbyLoginSuccess()
+```
+
+## 10. Sau CheckUser — CONFIRMED
+
+`SelectServerForm.OnLobbyLoginSuccess()`:
+
+1. lưu ServerID;
+2. nếu server chưa có trong `LoginResponse.ListUserServer` thì có thể gọi `UserAppendServer`;
+3. gọi `GameManager.LoadAllUserInfo(HTTP.WaitForGetUserInfo)`.
+
+=> prototype `/Login` trả:
+
+```json
+"ListUserServer": [1]
+```
+
+để tránh request `UserAppendServer` cho server offline ID 1.
+
+## 11. `/GetUserInfo` — CONFIRMED
+
+Request:
+
+```text
+Aid      = HTTP.UserInfo.AID
+Token    = HTTP.UserInfo.AccessToken
+Property = List<property>
+```
+
+`property` có:
+
+```text
+Name : string
+```
+
+`GameManager.LoadAllUserInfo` request đúng 21 property:
+
+```text
+account
+nhanVat
+trangBi
+voCong
+orb
+vatPhamTieuThu
+giaTriThoiGian
+doiHinh
+giangHo
+tanChuong
+honNhanVat
+mail
+banbe
+danhhieu
+danhson
+serverinfo
+lienminh
+kimcham
+moiruou
+longchau
+amkhi
+```
+
+`HTTPGetUserInfoResponse` chứa các nhóm tương ứng.
+
+### Tối thiểu client đọc ngay khi success
+
+`WaitForGetUserInfo` truy cập ngay:
+
+```text
+GiaTriThoiGian.TimeServer
+Account.DisplayName
+Account.Level
+NhanVat
+```
+
+Nếu:
+
+```text
+NhanVat == null hoặc Count == 0
+```
+
+client chuyển sang **Form index 13** — nhánh account chưa có nhân vật / chọn nhân vật ban đầu.
+
+Nếu `NhanVat.Count > 0`, client chuyển sang **Form index 3** — flow gameplay chính và cần nhiều schema hơn.
+
+=> milestone đầu cố ý dùng `NhanVat: []` để chứng minh end-to-end login trước.
+
+## 12. Local compatibility server đã tạo
+
+Repo:
+
+```text
+server/app.py
+server/dmc_crypto.py
+server/requirements.txt
+server/README.md
+```
+
+Server hiện có:
+
+```text
+GET  /health
+POST /Login
+POST /CheckUser
+POST /GetUserInfo
+```
+
+Handler match suffix nên cũng nhận:
+
+```text
+/Server/Webservice/User.asmx/Login
+/Server/Webservice/User.asmx/CheckUser
+/Server/Webservice/User.asmx/GetUserInfo
+```
+
+Server:
+
+- decrypt request AES;
+- log JSON plaintext;
+- dựng mock response;
+- encrypt response lại đúng AES client.
+
+Dependency hiện tại:
+
+```text
+pycryptodome>=3.20,<4
+```
+
+## 13. Patcher client đã tạo và đã validate static
+
+File:
+
+```text
+tools/patch_client.py
+```
+
+Patcher làm 2 việc:
+
+1. sửa string login server gốc trong `Assembly-CSharp.dll` thành local base URL;
+2. thay IL `LoginForm.OnLoginBtnClick` để gọi thẳng `HTTP.Login` thay vì `SohaSDKManager.Login`.
+
+Test local đã chạy thành công trên APK mẫu:
+
+```text
+HTTP::.ctor loginURL
+  -> http://10.0.2.2:8000/Server/Webservice/User.asmx
+```
+
+IL sau patch đã disassemble lại thành:
+
+```text
+call HTTP::get_Instance
+call HTTP::get_Instance
+ldftn HTTP::WaitForLogin
+newobj OnRequest::.ctor
+ldarg.0
+ldfld LoginForm::accountInput
+callvirt UIInput::get_text
+ldarg.0
+ldfld LoginForm::passInput
+callvirt UIInput::get_text
+callvirt HTTP::Login
+ret
+```
+
+=> patch IL về mặt metadata/IL đã đúng theo dự kiến.
+
+Patcher rebuild APK nên original signature không còn hợp lệ. Code hiện loại signature files cũ khi rebuild; APK phải được sign lại trước khi install.
+
+## 14. Artifact local đã tạo trong phiên này
+
+Không commit APK lên GitHub.
+
+Đã tạo thử trong workspace ChatGPT:
+
+```text
+/mnt/data/DaiMinhChu_8.0.2_local_unsigned2.apk
+/mnt/data/DaiMinhChu_8.0.2_local_debugsigned.apk
+```
+
+Bản `local_debugsigned.apk` đã được ký test bằng certificate tạm/self-signed và `jarsigner -verify` báo **jar verified**.
+
+URL patch trong artifact test là:
+
+```text
+http://10.0.2.2:8000/Server/Webservice/User.asmx
+```
+
+=> phù hợp chủ yếu với Android Emulator kiểu có host gateway `10.0.2.2`; chưa chắc phù hợp LDPlayer/máy thật. Nếu test trên máy thật/LAN nên chạy patcher với IP PC thực tế.
+
+Không lưu/không chia sẻ keystore tạm.
+
+## 15. Battle — trạng thái hiện tại
+
+Đã xác nhận class:
+
+```text
 HTTPBattleGiangHoRequest
 HTTPBattleGiangHoResponse
-BattleReplay
-GameManager
-LoginForm
-GiangHoForm
+KetQuaTranDau / BattleReplay
+BattleReward
 ```
 
-Một số endpoint/hành vi đã thấy hoặc đã được ghi nhận từ static strings/metadata:
+`HTTPBattleGiangHoRequest` fields:
 
 ```text
-/Login
-/Register
-/GetUserInfo
-/GiangHo
-/SetDoiHinh
-/EquipTrangBi
-/UpgradeTrangBi
-/UpgradeVoCong
-/LuyenKhi
-/DauLuanKiem
-/GetHuyetChienInfo
-/DauHuyetChien
-/GetHacMocNhaiBattle
-/DanhNienThu
+aid        : int32
+token      : string
+giangHoIdx : uint8
+nhiemVuIdx : uint8
 ```
 
-Cần tiếp tục xác nhận chính xác request/response schema từng endpoint từ IL/decompile, không chỉ dựa vào string.
-
-### 4.4 Serialization / transport
-
-Assembly chứa các dấu hiệu:
+`HTTPBattleGiangHoResponse`:
 
 ```text
-WWWForm
-LitJson
-JsonMapper
-ToJson
-JsonReader
-JsonWriter
+BattleReplay  : KetQuaTranDau
+Reward        : BattleReward
+giangHoIdx    : uint8
+nhiemVuIdx    : uint8
+star          : uint8
+UpdateUserInfo: HTTPGetUserInfoResponse
+ErrorCode     : HTTP_ERROR_CODE
+ErrorMsg      : string
 ```
 
-Giả thuyết mạnh hiện tại: phần lớn backend game dùng HTTP + form/JSON, thay vì bắt buộc một GS TCP binary phức tạp.
+Suy luận mạnh: server sinh kết quả/replay; client chủ yếu phát animation. Cần reverse nested replay sau khi login end-to-end chạy thật.
 
-**Chưa được phép coi là hoàn toàn xác nhận** cho tất cả endpoint cho tới khi trace/decompile method tạo request.
-
-### 4.5 Battle / BattleReplay
-
-Tên class và field liên quan battle đã thấy:
+## 16. Kiến trúc mục tiêu
 
 ```text
-HTTPBattleGiangHoRequest
-HTTPBattleGiangHoResponse
-BattleReplay
-BattleGiangHoResultPanel
-BattleReplayPanel
-```
-
-Các field/tên đã ghi nhận từ lần phân tích trước trong cùng dự án:
-
-```text
-GiangHoIdx
-NhiemVuIdx
-Star
-BattleReplay
-Reward
-UpdateUserInfo
-```
-
-BattleReplay được ghi nhận có cấu trúc kiểu:
-
-```text
-DoiThang
-Team1
-Team2
-Hiep1
-Hiep2
-Hiep3
-```
-
-Các khái niệm lượt đánh/kết quả đã thấy/ghi nhận:
-
-```text
-DoiTanCong
-NguoiTanCong
-DanhSachThuongTon
-VoCong
-BaoKich
-NeDon
-PhanKich
-PhanChan
-HoThe
-HapHuyet
-PhanChuong
-```
-
-**Suy luận hiện tại:** server nhiều khả năng tạo kết quả trận + `BattleReplay`, client nhận replay rồi phát animation. Vì vậy client gốc không đủ để chơi hoàn chỉnh nếu không có backend tương thích. Tuy nhiên không cần GS gốc nếu ta có thể tái tạo response đúng schema.
-
-### 4.6 Logic gameplay có trong client
-
-Các tên method đã ghi nhận cho thấy client chứa khá nhiều logic/config chỉ số, ví dụ:
-
-```text
-GetCongCoSo
-GetThuCoSo
-GetMauCoSo
-GetNoiLucCoSo
-GetChiSoNhanVat
-GetChiSoTrangBi
-GetEffectsFromVoCong
-GetEffectsFromDuyenPhanVoCong
-GetEffectsFromDuyenPhanDoiHinh
-GetEffectsFromKinhMach
-GetEffectsFromLongChau
-GetEffectsFromAmKhi
-```
-
-Điều này cho thấy có cơ hội tái sử dụng công thức/config ở client để dựng mini-GS thay vì viết lại mọi thứ từ đầu.
-
-### 4.7 Crypto
-
-Assembly có các tên:
-
-```text
-Aes
-RijndaelManaged
-MD5CryptoServiceProvider
-Encrypt
-Decrypt
-base64key
-base64iv
-```
-
-Cần xác định crypto được dùng cho endpoint nào, key/IV lấy ở đâu và request/response có cần mã hóa không.
-
-## 5. Kết luận kỹ thuật hiện tại
-
-- **Chỉ có APK thì chưa chạy offline ngay được.**
-- **Không nhất thiết phải có GS gốc** nếu reverse được protocol/schema và viết backend tương thích.
-- APK này thuận lợi hơn nhiều so với client native/IL2CPP đã strip vì là Unity Mono và còn nhiều symbol C#.
-- Hướng khả thi nhất hiện tại là **local HTTP backend + patch/redirect endpoint của client**.
-
-Đánh giá sơ bộ:
-
-| Thành phần | Đánh giá hiện tại |
-|---|---|
-| Khởi động client/UI | Khả thi |
-| Bỏ Soha login | Rất khả thi |
-| Fake server/login | Khả thi |
-| GetUserInfo | Khả thi sau khi biết schema |
-| Đội hình / tướng / trang bị / võ công | Khả thi |
-| Save local | Khả thi |
-| Giang Hồ | Khả thi sau khi dựng schema |
-| Combat | Khó hơn; cần sinh `BattleReplay` hợp lệ |
-| GS gốc Soha | Không bắt buộc nếu mini-GS đủ tương thích |
-
-## 6. Kiến trúc mục tiêu dự kiến
-
-```text
-APK gốc (hoặc APK patch endpoint)
-        |
-        | HTTP/JSON/form
-        v
+Patched APK
+    |
+    | HTTP + data=<AES(Base64(JSON))>
+    v
 Local Compatibility Server
-        |
-        +-- Auth/Login mock
-        +-- User/Profile
-        +-- Hero/Formation
-        +-- Inventory/Equipment/Skill
-        +-- GiangHo
-        +-- BattleReplay generator
-        |
-        v
-SQLite hoặc JSON save local
+    |
+    +-- Login
+    +-- CheckUser
+    +-- User/Profile
+    +-- Hero/Formation
+    +-- Inventory/Equipment/Skills
+    +-- GiangHo
+    +-- BattleReplay generator
+    |
+    v
+SQLite / JSON local save
 ```
 
-Ngôn ngữ backend đề xuất ban đầu: **Python** để reverse/prototype nhanh. Sau này chỉ đổi stack nếu có lý do rõ ràng.
-
-## 7. Roadmap thực thi
+## 17. Roadmap / trạng thái
 
 ### Phase 0 — Bootstrap repo
 
-- [x] Tạo repo.
-- [x] Tạo HANDOFF chuẩn.
-- [ ] Tạo README / docs / skeleton server.
-- [ ] Tạo `.gitignore`.
+- [x] Repo
+- [x] README
+- [x] HANDOFF
+- [x] `.gitignore`
+- [x] protocol docs
+- [x] server skeleton
+- [x] patcher skeleton
 
 ### Phase 1 — Reverse login flow
 
-Mục tiêu: xác định chính xác luồng từ mở app đến màn hình chính.
-
-- [ ] Decompile `Assembly-CSharp.dll` đủ sâu để lấy method signatures.
-- [ ] Xác định class trung tâm thực hiện HTTP request.
-- [ ] Xác định base URL / endpoint builder.
-- [ ] Xác định body của `/Login`.
-- [ ] Xác định schema `HTTPLoginResponse`.
-- [ ] Xác định body/schema `/GetUserInfo`.
-- [ ] Xác định token/session flow.
-- [ ] Xác định có encryption/signature/checksum không.
-
-**Definition of done:** có tài liệu request/response đủ để viết mock `/Login` + `/GetUserInfo`.
+- [x] Xác định HTTP class và endpoint builder
+- [x] `/Login` request/response schema
+- [x] `/CheckUser` request/response schema
+- [x] `/GetUserInfo` request/response chính
+- [x] AES algorithm + Key/IV
+- [x] Flow Soha SDK cần bypass
+- [x] `LoginCfg=null` để skip config remote
+- [x] 21 property GetUserInfo
+- [ ] Test runtime thật trên Android/emulator
 
 ### Phase 2 — Minimal local server
 
-- [ ] Python server chạy localhost/LAN.
-- [ ] `/health`
-- [ ] `/Login`
-- [ ] `/GetUserInfo`
-- [ ] logging toàn bộ request.
-- [ ] fixture JSON/form response.
-
-**Definition of done:** client kết nối vào server local và tiến xa hơn trạng thái server-dead ban đầu.
+- [x] `/health`
+- [x] `/Login`
+- [x] `/CheckUser`
+- [x] `/GetUserInfo`
+- [x] request logging
+- [x] AES decrypt/encrypt
+- [ ] Run server + client thật và xác nhận request đến PC
+- [ ] Fix schema/date serialization nếu runtime báo lỗi
 
 ### Phase 3 — Patch/redirect client
 
-Các phương án cần thử theo thứ tự ít xâm lấn:
-
-1. DNS/hosts redirect nếu host/HTTP cho phép.
-2. Patch string base URL trong `Assembly-CSharp.dll`.
-3. Patch C# method tạo endpoint nếu cần.
-4. Resign APK và test Android/emulator.
+- [x] Patch base login URL
+- [x] Bypass `SohaSDKManager.Login` ở nút login bằng IL patch
+- [x] Rebuild APK
+- [x] Static disassembly validation
+- [x] Debug-sign test artifact bằng v1/JAR signature
+- [ ] Install/run trên Android thật
+- [ ] Nếu `PlayerPrefs login != 0` làm auto Soha login: clear app data trước hoặc patch `LoginForm.OnActive`
 
 ### Phase 4 — User/game state
 
-- [ ] User info
-- [ ] Currency/resource
-- [ ] Hero list
-- [ ] Formation
-- [ ] Equipment
-- [ ] Skills
-- [ ] Upgrade endpoints tối thiểu
-- [ ] Save local
+- [ ] Tạo/chọn starter hero
+- [ ] NhanVat schema
+- [ ] DoiHinh
+- [ ] TrangBi
+- [ ] VoCong
+- [ ] inventory
+- [ ] save local
 
-### Phase 5 — Giang Hồ / Battle
+### Phase 5 — Giang Hồ/Battle
 
-- [ ] Reverse `HTTPBattleGiangHoRequest`.
-- [ ] Reverse đầy đủ `HTTPBattleGiangHoResponse`.
-- [ ] Reverse nested `BattleReplay` classes.
-- [ ] Tạo replay fixture tối thiểu.
-- [ ] Test client phát được 1 trận.
-- [ ] Sau đó mới viết battle generator thực sự.
+- [ ] Full GiangHo schema
+- [ ] Full `KetQuaTranDau/BattleReplay` nested schema
+- [ ] replay fixture đơn giản
+- [ ] client phát được 1 battle
+- [ ] battle generator
 
-## 8. Quy tắc phát triển
+## 18. Việc cần làm NGAY tiếp theo
 
-1. Không commit APK gốc hoặc dump asset đầy đủ lên repo.
-2. Tài liệu reverse phải ghi rõ cái gì là **CONFIRMED**, cái gì là **HYPOTHESIS**.
-3. Mọi endpoint sau khi reverse phải ghi:
-   - method HTTP
-   - path
-   - request fields
-   - response fields
-   - encoding/encryption
-   - sample fixture tự tạo
-   - nơi client gọi endpoint đó
-4. Không cố phục dựng mọi online feature trước khi login → gameplay cơ bản hoạt động.
-5. Ưu tiên tạo test fixture nhỏ, deterministic.
-6. Trước khi kết thúc mỗi phiên ChatGPT: cập nhật `HANDOFF.md` với:
-   - đã làm gì
-   - file/commit nào thay đổi
-   - phát hiện mới
-   - blocker
-   - bước tiếp theo chính xác
+**Ưu tiên số 1: test end-to-end thật.**
 
-## 9. Việc cần làm NGAY ở phiên tiếp theo
+1. Xác định môi trường Android user sẽ dùng: emulator nào / máy thật / IP PC.
+2. Chạy local server từ repo:
 
-1. Đọc `HANDOFF.md` trước.
-2. Lấy APK 8.0.2 nếu phiên mới vẫn còn attachment; nếu không có thì người dùng có thể cần upload lại APK cho việc phân tích binary local.
-3. Reverse `HTTPLoginRequest`, `HTTPLoginResponse`, `HTTPGetUserInfoRequest`, `HTTPGetUserInfoResponse` từ `Assembly-CSharp.dll`.
-4. Tạo `docs/protocol/login.md` với schema cụ thể.
-5. Dựng `server/` prototype chỉ sau khi schema đủ rõ.
-6. Cập nhật lại HANDOFF sau mỗi mốc.
+```text
+cd server
+pip install -r requirements.txt
+set DMC_BASE_URL=http://<IP-PC>:8000
+python app.py
+```
 
-## 10. Ghi chú từ người dùng
+3. Chạy `tools/patch_client.py` với cùng IP/base URL.
+4. Sign APK patched.
+5. Clear app data để tránh PlayerPrefs auto Soha login cũ.
+6. Mở APK, bấm login.
+7. Quan sát console server xem có request `/Login` không.
+8. Nếu `/Login` OK, theo dõi `/CheckUser` và `/GetUserInfo`.
+9. Thu log + ảnh màn hình lỗi/success.
+10. Sửa response schema theo lỗi runtime.
 
-- Người dùng từng chơi Đại Minh Chủ bản Việt Nam cũ và mục tiêu chính là chơi lại offline để hoài niệm.
-- Người dùng chủ động muốn GitHub làm nơi lưu trạng thái dự án để khi chat quá dài có thể mở chat mới và tiếp tục ngay.
-- Vì vậy `HANDOFF.md` phải được coi là bắt buộc và cập nhật liên tục, không đợi tới khi người dùng nhắc lại.
+**Definition of milestone:** client đi được từ màn login đến form chọn server rồi form tạo/chọn nhân vật bằng local server.
+
+## 19. Quy tắc làm việc cho các phiên ChatGPT sau
+
+1. **Luôn đọc `HANDOFF.md` trước.**
+2. Không yêu cầu người dùng kể lại những gì đã có trong HANDOFF.
+3. Phân biệt rõ **CONFIRMED** và **HYPOTHESIS**.
+4. Không reverse lan man feature chưa cần; ưu tiên đường critical path offline.
+5. Commit code/docs sau mỗi mốc có giá trị.
+6. Sau mỗi mốc, cập nhật HANDOFF với:
+   - phát hiện mới;
+   - file/commit đã thay đổi;
+   - test đã chạy;
+   - blocker;
+   - bước tiếp theo cụ thể.
+7. APK gốc và full game asset không đưa lên repo.
+
+## 20. Ghi chú người dùng
+
+- Người dùng từng chơi Đại Minh Chủ Việt Nam bản cũ và muốn chơi lại offline để hoài niệm.
+- Người dùng yêu cầu dự án phải giữ trạng thái trên GitHub/HANDOFF để có thể mở chat mới và tiếp tục ngay khi cuộc chat hiện tại quá dài.
+- Vì vậy **cập nhật HANDOFF là yêu cầu bắt buộc liên tục, không cần đợi người dùng nhắc lại**.
