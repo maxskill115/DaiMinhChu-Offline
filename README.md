@@ -1,30 +1,52 @@
 # DaiMinhChu-Offline
 
-Dự án nghiên cứu/phục dựng **Đại Minh Chủ Việt Nam** để chạy ở chế độ local/offline bằng cách tái tạo backend tương thích với client gốc.
+Dự án nghiên cứu/phục dựng **Đại Minh Chủ Việt Nam 8.0.2** để chạy local/offline bằng cách tái tạo backend tương thích với client gốc.
 
-## Trạng thái
+## Trạng thái hiện tại
 
-Đang ở giai đoạn reverse APK 8.0.2:
+APK đã được xác định là **Unity 4.x + Mono**, còn `Assembly-CSharp.dll` với nhiều symbol C# nguyên tên.
 
-- Unity 4.x + Mono.
-- Có `Assembly-CSharp.dll` với nhiều tên class/method còn nguyên.
-- Đã xác định endpoint Soha cũ và các class HTTP chính.
-- Hướng hiện tại: local HTTP compatibility server, không phụ thuộc GS gốc nếu reverse được schema.
+Đã reverse và dựng prototype cho flow:
 
-## Tài liệu quan trọng
+```text
+Patched LoginForm
+    -> /Login
+    -> chọn server Offline
+    -> /CheckUser
+    -> /GetUserInfo
+    -> BeginCutsceneForm
+    -> chọn Phong Thanh Dương / Lệnh Hồ Xung / Sở Lưu Hương
+    -> /SelectStartNhanVat
+    -> Home (Form 3)
+```
 
-- [`HANDOFF.md`](HANDOFF.md): trạng thái dự án mới nhất, bắt buộc đọc trước khi tiếp tục ở phiên làm việc mới.
-- `docs/`: ghi chép reverse/protocol.
-- `server/`: local compatibility server sẽ được xây dựng tại đây.
+Transport game đã xác định là **HTTP + JSON bọc AES-128-CBC/PKCS7**.
 
-## Phạm vi
+Core config nhân vật/trang bị/võ công/Giang Hồ... đã được xác nhận là có sẵn trong Unity `Resources` của APK; remote `LoginCfg` chỉ phục vụ cập nhật config và có thể để `null` trong prototype.
 
-Ưu tiên offline cơ bản:
+> Flow trên hiện đã được xác nhận bằng static reverse + fixture/test server. **Chưa được xác nhận end-to-end trên Android/emulator thật.** Runtime test là milestone tiếp theo.
 
-`Login -> GetUserInfo -> đội hình/tướng/trang bị/võ công -> Giang Hồ -> BattleReplay -> save local`
+## Thành phần repo
 
-Không ưu tiên các hệ thống online như nạp tiền, chat, bang hội, leaderboard và PvP thật.
+- [`HANDOFF.md`](HANDOFF.md) — nguồn trạng thái chính, **bắt buộc đọc trước khi tiếp tục ở chat mới**.
+- [`docs/protocol/login.md`](docs/protocol/login.md) — login / CheckUser / GetUserInfo / AES transport.
+- [`docs/protocol/first-character.md`](docs/protocol/first-character.md) — BeginCutsceneForm và `/SelectStartNhanVat`.
+- [`server/`](server/) — Python local compatibility server.
+- [`tools/patch_client.py`](tools/patch_client.py) — patch đúng APK 8.0.2 để bỏ Soha SDK login và trỏ login server về local.
 
-## Lưu ý
+## Mục tiêu offline ưu tiên
 
-Repo không lưu APK gốc hoặc toàn bộ asset game. Chỉ lưu code tự viết, tài liệu reverse và fixture/test data tối thiểu cần thiết cho nghiên cứu tương thích.
+```text
+Login
+ -> profile/save local
+ -> nhân vật/đội hình/trang bị/võ công
+ -> Giang Hồ
+ -> BattleReplay
+ -> tiến trình offline ổn định
+```
+
+Không ưu tiên giai đoạn đầu: nạp tiền, Soha account thật, chat, bang hội online, PvP thật, leaderboard, liên server.
+
+## Không lưu trong repo
+
+Repo không chứa APK gốc, full asset dump, credential hay keystore. Chỉ lưu code tự viết, tài liệu reverse và fixture tối thiểu phục vụ nghiên cứu tương thích.
