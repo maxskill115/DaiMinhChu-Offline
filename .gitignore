@@ -18,6 +18,8 @@ venv/
 
 # Decompiled/extracted game data
 apk_extract/
+apk_workspace/
+apktool_out/
 decompiled/
 dump/
 assets_dump/
