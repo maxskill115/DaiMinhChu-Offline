@@ -22,13 +22,6 @@ server/static_endpoints.py
 tools/protocol_audit.py
 ```
 
-`protocol_audit.py` phải cho:
-
-```text
-Client endpoints: 277
-Missing from server allowlist: 0
-```
-
 User đã chạy 2026-08-18 và xác nhận:
 
 ```text
@@ -38,10 +31,12 @@ Missing from server allowlist: 0
 Allowlist entries absent from this client: 0
 ```
 
-## 4. Mốc mới: DTO audit trực tiếp từ metadata
-Trước khi user pull, đã làm thêm một lượt đối soát metadata `TypeDef/Field` trong `Assembly-CSharp.dll` và phát hiện server 0.9 còn nhiều response key đoán sai dù endpoint đã đúng.
+=> endpoint-name coverage hiện sạch cho client 8.0.2.
 
-Tài liệu mới:
+## 4. DTO audit trực tiếp từ metadata
+Đã đối soát metadata `TypeDef/Field` trong `Assembly-CSharp.dll` để sửa nhiều response key trước đó bị đoán sai.
+
+Tài liệu:
 
 ```text
 docs/protocol/runtime-dto-audit.md
@@ -58,8 +53,6 @@ errorCode
 errorMsg
 ```
 
-Stub cũ `SystemHighLightList/SystemHighLight` sai.
-
 ### LayNhanVat
 Exact `HTTPLayNhanVatRespone`:
 
@@ -71,7 +64,7 @@ GetIdx
 UpdateUserInfo
 ```
 
-Server 0.10 bỏ alias đoán, dùng `errorMsg` làm valid embedded hero code theo runtime callback đã quan sát.
+Server 0.10 dùng `errorMsg` làm valid embedded hero code theo runtime callback đã quan sát.
 
 ### DanhNhanhGiangHo
 Exact `HTTPDanhNhanhGiangHoResponse`:
@@ -85,9 +78,7 @@ ErrorCode
 ErrorMsg
 ```
 
-Server 0.9 sai casing `giangHoIdx/nhiemVuIdx` và thêm field đoán. Server 0.10 đã sửa exact DTO.
-
-### GetTongKimInfo — correction test quan trọng
+### GetTongKimInfo
 Static metadata xác nhận `HTTPGetTongKimResponse` chỉ có:
 
 ```text
@@ -95,15 +86,9 @@ huongDan
 listBoss
 ```
 
-Không có `ErrorCode/errorCode`. Unit test cũ dùng generic success-envelope nên fail dù handler đúng. Đã sửa test để kiểm exact DTO `{huongDan:"", listBoss:[]}` thay vì ép phải có ErrorCode.
+Không có `ErrorCode/errorCode`. Unit test cũ sai đã được sửa.
 
-Commit fix:
-
-```text
-dee43935  Sửa test DTO GetTongKimInfo theo schema tĩnh
-```
-
-### Các read DTO đã sửa exact/skeleton non-null
+### Các read DTO đã có exact/minimal skeleton
 
 ```text
 GetInfoLienMinh
@@ -124,18 +109,57 @@ GetMiniBossInfo
 
 Nested DTO quan trọng cũng đã đối soát cho `HuyetChienProfile`, `NNKiemTranInfo`, `NNBiBaoShop`, `DoiDiemNPC`, `BattleReward`, v.v.
 
-## 5. Kiến trúc fallback sửa lại — quan trọng
-Server 0.9 có lỗi thiết kế: endpoint nằm trong 277 list nhưng chưa reverse DTO được trả **fake success `ErrorCode=1`**. Điều này loại 404 nhưng khiến client đi vào success callback và dễ NullReference vì thiếu data.
-
+## 5. Kiến trúc fallback
 Từ **server 0.10**:
 
 - route đã có exact/minimal DTO -> success handler riêng;
-- endpoint thuộc 277 nhưng chưa reverse -> HTTP/AES vẫn hợp lệ nhưng logical `ErrorCode/errorCode=0` với thông báo controlled unsupported;
+- endpoint thuộc 277 nhưng chưa reverse -> HTTP/AES hợp lệ nhưng logical `ErrorCode/errorCode=0` controlled unsupported;
 - endpoint không tồn tại trong 277 -> HTTP 404.
 
-=> không còn biến `404` thành `fake success + NullReference` một cách mù quáng.
+=> tránh fake-success rồi NullReference.
 
-## 6. Giang Hồ — PARTIAL
+## 6. Server 0.10 — SERVER TESTED CLEAN
+User đã pull đến commit `2d866de` và chạy:
+
+```text
+python -m unittest -v
+```
+
+Kết quả **CONFIRMED SERVER TESTED**:
+
+```text
+Ran 29 tests in 0.091s
+OK
+```
+
+Sau đó chạy server với:
+
+```text
+DMC_BASE_URL=http://192.168.1.14:8000
+```
+
+Console xác nhận:
+
+```text
+Starting Dai Minh Chu local compatibility server
+Listen: http://0.0.0.0:8000
+Advertised User.asmx: http://192.168.1.14:8000/Server/Webservice/User.asmx
+Derived Battle.asmx: http://192.168.1.14:8000/Server/Webservice/Battle.asmx
+Exact routes: 26; static client endpoints covered: 277
+```
+
+`GET http://127.0.0.1:8000/health` trả 200 và xác nhận:
+
+```text
+server_version = DMCOffline/0.10
+static_endpoint_count = 277
+exact_route_count = 26
+has_character = true
+```
+
+=> server 0.10 hiện đủ điều kiện runtime test client, không cần sửa unit/server bootstrap trước.
+
+## 7. Giang Hồ — PARTIAL
 Minimal BattleReplay chạy runtime nhưng nội dung chưa phải game gốc.
 
 Đã persist Bạc + account EXP + hero EXP. NPC fixture thay đổi theo ải nhưng roster/item/combat script/reward gốc chưa map từ config.
@@ -147,61 +171,28 @@ Exact endpoint:
 /ResetTurnNhiemVuGH
 ```
 
-`DanhNhanhGiangHo` hiện thực hiện tối đa 10 clear và response đã sửa theo exact DTO static. Runtime retest pending.
+`DanhNhanhGiangHo` đã có exact root DTO static và thực hiện tối đa 10 clear. **Runtime retest pending trên server 0.10.**
 
-## 7. Blocker runtime đã biết
-- **Mở tướng:** runtime cũ `WaitForLayNhanVat -> SetByName -> KeyNotFoundException`; server 0.10 đã sửa theo exact DTO, retest pending.
+## 8. Blocker runtime cần retest trên 0.10
+- **Mở tướng:** runtime cũ `WaitForLayNhanVat -> SetByName -> KeyNotFoundException`; exact DTO đã sửa, retest pending.
 - **Kỳ Ngộ:** `KyNgoForm.CreateDocCoPage -> NullReferenceException`; data issue.
-- **Luận Kiếm:** `LuanKiemBang.SyncWithNetworkData -> NullReferenceException`; server 0.10 đã dựng exact response skeleton, retest pending.
+- **Luận Kiếm:** `LuanKiemBang.SyncWithNetworkData -> NullReferenceException`; server 0.10 đã dựng response skeleton, retest pending.
 - **Bang Chiến:** `BangChienForm.SetupGUI -> NullReferenceException`; exact root DTO đã dựng, nested semantics còn pending.
 - **Linh Thưởng:** `LinhThuongQuay.OnDoiThuongNPC1/NPC2 -> NullReferenceException`; chưa reverse data source.
 
-## 8. Server / tests mới
-Server hiện: `DMCOffline/0.10`.
+## 9. Việc cần làm NGAY
+Không pull/build APK thêm. Server 0.10 đang chạy và test sạch.
 
-Mốc commit mới:
+Runtime test theo thứ tự:
 
-```text
-8f099ba5  Đối soát DTO runtime trước khi test
-e69ca07b  Cập nhật test theo DTO đã đối soát
-a6cc341b  Đồng bộ test server với DTO runtime mới
-4c933d48  Ghi lại đối soát DTO runtime từ Assembly
-dee43935  Sửa test DTO GetTongKimInfo theo schema tĩnh
-```
+1. Mở tướng / LayNhanVat.
+2. Giang Hồ: đánh 2 ải khác nhau, kiểm Bạc/EXP; bấm Đánh nhanh 10 lần.
+3. Luận Kiếm.
+4. Bang Chiến.
+5. Kỳ Ngộ.
+6. Sau đó mới sweep các menu còn lại.
 
-User đã chạy test sau khi pull và có đúng 1 failure:
-
-```text
-test_known_read_routes_return_success
-AssertionError: None != 1 : gettongkiminfo
-```
-
-Nguyên nhân là test sai, không phải handler sai. Đã fix trên repo; user cần `git pull` lại và chạy `python -m unittest -v`.
-
-## 9. Bước user cần làm tiếp
-
-```bat
-cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
-git pull
-cd server
-python -m unittest -v
-```
-
-Nếu toàn bộ test `OK`, chạy:
-
-```bat
-set DMC_BASE_URL=http://192.168.1.14:8000
-python app.py
-```
-
-`/health` phải báo:
-
-```text
-server_version = DMCOffline/0.10
-static_endpoint_count = 277
-```
-
-Sau đó mới runtime test client.
+Khi test, ưu tiên capture `adb logcat` + console server từ lúc click chức năng đến lúc lỗi/thành công để xác nhận DTO runtime, không còn dùng log để discover endpoint-name.
 
 ## 10. APK workspace / GM
 - `tools/apk_workspace.py`: unpack/scan/repack raw APK; Unity serialized assets vẫn cần AssetRipper/UABE/UnityPy cho texture/audio/animation/effect/prefab.
