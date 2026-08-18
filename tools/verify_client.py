@@ -10,8 +10,8 @@ from patch_client import (
     DIRECT_LOGIN_IL,
     LOGIN_URL_US_INDEX,
     ON_LOGIN_BTN_RVA,
+    SOHA_SET_USER_INFO_NOOP_IL,
     SOHA_SET_USER_INFO_RVA,
-    _fat_method_layout,
     _find_metadata_stream,
     _rva_to_offset,
 )
@@ -55,12 +55,13 @@ def verify_apk(path: Path) -> int:
     set_user_info_body = _method_body(assembly, SOHA_SET_USER_INFO_RVA)
 
     login_ok = login_body == DIRECT_LOGIN_IL
-    soha_ok = set_user_info_body == b"\x2a"
+    soha_ok = set_user_info_body == SOHA_SET_USER_INFO_NOOP_IL
 
     print(f"APK: {path}")
     print(f"Login URL: {login_url}")
     print(f"Direct login patch: {'OK' if login_ok else 'MISSING'}")
     print(f"Soha SetUserInfo no-op: {'OK' if soha_ok else 'MISSING'}")
+    print(f"SetUserInfo CodeSize: {len(set_user_info_body)}")
     print(f"SetUserInfo IL: {set_user_info_body.hex(' ')}")
 
     return 0 if login_ok and soha_ok else 1
