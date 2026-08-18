@@ -342,25 +342,65 @@ SERVER TESTED:
   AES + HTTP chain + persistence + mission unlock
 
 CLIENT RUNTIME:
-  PENDING
+  LDPlayer launches process but patched APK currently aborts before login (signal 6)
 ```
 
-Không được nói game đã vào Home/phát trận/hiện sao thành công trên Android cho tới khi có runtime log.
+Không được nói game đã vào Home/phát trận/hiện sao thành công trên Android cho tới khi có runtime log xác nhận.
 
-## 14. Việc cần làm NGAY ở chat tiếp theo
+## 14. Runtime LDPlayer — CONFIRMED RUNTIME FAILURE (2026-08-18)
 
-### Ưu tiên #1: runtime Android/emulator
+Môi trường hiện dùng LDPlayer. PC/server IP đã xác nhận LDPlayer truy cập được:
 
-1. clone/pull repo;
-2. `cd server` → `pip install -r requirements.txt`;
-3. `python -m unittest -v`;
-4. chạy `python app.py` với `DMC_BASE_URL` là địa chỉ PC Android truy cập được;
-5. patch đúng APK 8.0.2 bằng `tools/patch_client.py` với cùng URL;
-6. zipalign/sign/install APK;
-7. mở game, login bất kỳ;
-8. theo dõi server console + `adb logcat`.
+```text
+http://192.168.1.14:8000/health
+```
 
-Expected lần đầu:
+Server quảng bá đúng:
+
+```text
+http://192.168.1.14:8000/Server/Webservice/User.asmx
+http://192.168.1.14:8000/Server/Webservice/Battle.asmx
+```
+
+APK đã patch bằng `tools/patch_client.py`, zipalign và ký test; `apksigner verify --verbose` báo v1/v2/v3 đều true.
+
+Runtime logcat khi mở patched APK:
+
+```text
+ActivityManager START vn.sohagame.dminhchu/.UnityActivity
+SohagameSDK init chạy
+libMesgLog.so load
+libmain.so load qua Houdini/native bridge
+Unity/OpenGL ES init bắt đầu
+sau ~1.7 giây process chết
+Zygote: Process ... exited due to signal (6)
+ActivityManager: Process vn.sohagame.dminhchu has died
+```
+
+Không thấy Java `FATAL EXCEPTION` trong log thu được. Crash xảy ra **trước khi có request `/Login` đến local server**.
+
+Có log GL như `EGL_BAD_MATCH` / framebuffer completeness, nhưng chưa đủ để kết luận đây là nguyên nhân; hiện chỉ là **HYPOTHESIS**.
+
+### Việc cần làm tiếp theo
+
+Ưu tiên A/B test để tách lỗi emulator khỏi lỗi patch/rebuild:
+
+1. cài APK gốc `daiminhchu.apk` lên cùng LDPlayer và xem nó có vào được màn hình game hay cũng signal 6;
+2. nếu APK gốc chạy, lỗi nằm trong pipeline patch/rebuild/sign hoặc IL patch;
+3. nếu APK gốc cũng crash, ưu tiên tương thích Unity 4.x/ARMv7/Houdini/renderer của LDPlayer;
+4. lấy crash buffer/tombstone chi tiết bằng `adb logcat -b crash`, `adb shell ls /data/tombstones` (nếu quyền cho phép), hoặc bugreport;
+5. nếu cần, tạo bản patch chỉ đổi URL, chưa patch `OnLoginBtnClick`, để isolate IL patch.
+
+## 15. Việc cần làm NGAY ở chat tiếp theo
+
+### Ưu tiên #1: isolate crash Android/emulator
+
+1. A/B test APK gốc trên chính LDPlayer hiện tại;
+2. lấy `adb logcat -b crash -d` ngay sau khi crash;
+3. nếu gốc chạy, build 2 biến thể: URL-only và URL+IL-login-patch để xác định patch nào gây abort;
+4. nếu gốc cũng crash, thử LDPlayer 32-bit/Android thấp hơn hoặc renderer khác trước khi sửa protocol/backend.
+
+Expected khi client runtime vượt qua crash:
 
 ```text
 /Login
@@ -372,22 +412,11 @@ Home
 GiangHo
 /Battle.asmx/GiangHo
 BattleForm -> result
-quay GiangHo -> thấy 3 sao + mission kế mở
 ```
 
-Sau đó restart server/game để xác nhận `/GetUserInfo` load hero/progress từ `save.json` và đi thẳng Home.
+Nếu fail sau khi đã có request mạng: lấy **request cuối + server log + adb logcat/stack** rồi reverse đúng điểm fail, không đoán.
 
-Nếu fail: lấy **request cuối + server log + adb logcat/stack** rồi reverse đúng điểm fail, không đoán.
-
-### Nếu chưa runtime được
-
-Tiếp tục static theo thứ tự:
-
-1. equipment/skill/formation schema cần cho Home;
-2. reward/EXP/level progression chuẩn hơn;
-3. battle generator dùng đội hình/stat/config thật.
-
-## 15. Commit/mốc gần nhất
+## 16. Commit/mốc gần nhất
 
 Các mốc mới nhất trước HANDOFF update này:
 
@@ -404,7 +433,7 @@ a5c9c170  smoke_client
 e217d3b1  minimal Battle.asmx/GiangHo
 ```
 
-## 16. Quy tắc bắt buộc
+## 17. Quy tắc bắt buộc
 
 - Luôn phân biệt `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
 - Không commit APK/full asset dump.
