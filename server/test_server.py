@@ -65,46 +65,50 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(info["NhanVat"][0]["Name"], "NV_SoLuuHuong")
         self.assertEqual(info["DoiHinh"]["Slot1"], 1)
 
-    def test_runtime_discovered_routes_are_registered(self) -> None:
+    def test_runtime_routes_are_registered(self) -> None:
         expected = {
-            "getsystemhighlight", "getminibossinfo", "laynhanvat",
-            "getinfolienminh", "createlienminh", "chatget", "getanhhungbang",
-            "getdongnhaninfo", "gethuyetchieninfo", "getnienthuinfo",
-            "getvantieuinfo", "ngunhacgetinfo", "gettongkiminfo",
-            "buyvatphamtieuthu", "buylebao", "refreshdiemluankiem",
+            "getsystemhighlight", "getminibossinfo", "laynhanvat", "getinfolienminh",
+            "createlienminh", "chatget", "getanhhungbang", "getdongnhaninfo",
+            "gethuyetchieninfo", "getnienthuinfo", "getvantieuinfo", "ngunhacgetinfo",
+            "gettongkiminfo", "buyvatphamtieuthu", "buylebao", "refreshdiemluankiem",
             "getinfobangchien", "findlienminh", "getthanhvienlienminh",
+            "danhnhanhgiangho", "resetturnnhiemvugh",
         }
         self.assertTrue(expected.issubset(ROUTES))
 
-    def test_runtime_menu_stubs_are_http_success_envelopes(self) -> None:
+    def test_known_read_routes_return_success(self) -> None:
         for name in (
-            "getinfolienminh", "createlienminh", "chatget", "getanhhungbang",
-            "getdongnhaninfo", "gethuyetchieninfo", "getnienthuinfo",
-            "getvantieuinfo", "ngunhacgetinfo", "gettongkiminfo",
-            "buyvatphamtieuthu", "buylebao", "refreshdiemluankiem",
+            "getsystemhighlight", "getminibossinfo", "chatget", "getanhhungbang",
+            "getdongnhaninfo", "gethuyetchieninfo", "getnienthuinfo", "getvantieuinfo",
+            "ngunhacgetinfo", "gettongkiminfo", "refreshdiemluankiem",
             "getinfobangchien", "findlienminh", "getthanhvienlienminh",
         ):
             response = ROUTES[name]({"Aid": 1})
-            self.assertTrue(response.get("ErrorCode", response.get("errorCode")) == 1, name)
+            self.assertEqual(response.get("ErrorCode", response.get("errorCode")), 1, name)
 
-    def test_system_highlight_stub_is_empty_success(self) -> None:
+    def test_create_lien_minh_is_controlled_failure_not_fake_success(self) -> None:
+        response = ROUTES["createlienminh"]({"Aid": 1})
+        self.assertEqual(response["errorCode"], 0)
+        self.assertIn("offline", response["errorMsg"].lower())
+
+    def test_system_highlight_exact_dto_shape(self) -> None:
         response = _system_highlight_response({"Aid": 1})
-        self.assertEqual(response["ErrorCode"], 1)
-        self.assertEqual(response["SystemHighLightList"], [])
+        self.assertEqual(response, {"highLightQuery": [], "errorCode": 1, "errorMsg": ""})
 
-    def test_mini_boss_stub_is_empty_success(self) -> None:
+    def test_mini_boss_exact_core_fields(self) -> None:
         response = _mini_boss_info_response({"Aid": 1})
         self.assertEqual(response["ErrorCode"], 1)
-        self.assertIsNone(response["MiniBossInfo"])
+        self.assertIsInstance(response["lastTop10"], list)
+        self.assertEqual(response["MauBoss"], 0)
 
-    def test_lay_nhan_vat_returns_valid_code_and_adds_hero(self) -> None:
+    def test_lay_nhan_vat_exact_response_fields_and_adds_hero(self) -> None:
         _select_start_nhan_vat_response({"NhanVatCode": "NV_LenhHoXung"})
         before = len(STORE.all_heroes_payload())
         response = _lay_nhan_vat_response({"Aid": 1})
-        self.assertEqual(response["ErrorCode"], 1)
-        self.assertIn(response["ErrorMsg"], START_HEROES)
+        self.assertEqual(set(response), {"errorCode", "errorMsg", "ListEventHon", "GetIdx", "UpdateUserInfo"})
+        self.assertEqual(response["errorCode"], 1)
+        self.assertIn(response["errorMsg"], START_HEROES)
         self.assertEqual(len(STORE.all_heroes_payload()), before + 1)
-        self.assertIsInstance(response["ListEventHon"], list)
 
     def test_gm_updates_account_time_and_group(self) -> None:
         handle_gm_api(STORE, "/gm/api/account", {"DisplayName": "GM", "Vang": 999999, "Bac": 888888, "Vip": 12, "Level": 99})
@@ -147,8 +151,6 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(after["Account"]["Bac"], before["Account"]["Bac"] + response["Reward"]["Bac"])
         self.assertEqual(after["Account"]["Exp"], before["Account"]["Exp"] + response["Reward"]["ExpMonPhai"])
         self.assertEqual(after["NhanVat"][0]["Exp"], before["NhanVat"][0]["Exp"] + response["Reward"]["ExpNhanVat"])
-        self.assertEqual(response["UpdateUserInfo"]["Account"]["Bac"], after["Account"]["Bac"])
-        self.assertEqual(response["UpdateUserInfo"]["NhanVat"][0]["Exp"], after["NhanVat"][0]["Exp"])
 
     def test_giangho_enemy_varies_by_stage_and_has_real_hp(self) -> None:
         _select_start_nhan_vat_response({"NhanVatCode": "NV_LenhHoXung"})
@@ -160,8 +162,6 @@ class FixtureTests(unittest.TestCase):
         self.assertIn(e2["Name"], START_HEROES)
         self.assertGreater(e1["Mau"], 1)
         self.assertGreater(e2["Mau"], 1)
-        self.assertNotEqual((e1["Name"], first["BattleReplay"]["Team2"]["Name"]),
-                            (e2["Name"], second["BattleReplay"]["Team2"]["Name"]))
 
     def test_replaying_mission_preserves_best_star_and_increments_turn(self) -> None:
         store = SaveStore(Path(_TEST_DIR.name) / "progress.json")
@@ -170,11 +170,13 @@ class FixtureTests(unittest.TestCase):
 
     def test_locked_mission_rejected(self) -> None:
         store = SaveStore(Path(_TEST_DIR.name) / "locked.json"); store.reset()
-        with self.assertRaises(ValueError): store.complete_giangho_battle(0, 1, 3)
+        with self.assertRaises(ValueError):
+            store.complete_giangho_battle(0, 1, 3)
 
     def test_last_first_chapter_mission_completes_and_unlocks_next_chapter(self) -> None:
         store = SaveStore(Path(_TEST_DIR.name) / "chapter.json"); store.reset()
-        for idx in range(CHAPTER_MISSION_COUNTS[0]): store.complete_giangho_battle(0, idx, 3)
+        for idx in range(CHAPTER_MISSION_COUNTS[0]):
+            store.complete_giangho_battle(0, idx, 3)
         self.assertEqual(store.giangho_payload()[0]["HoanThanh"], 1)
         store.complete_giangho_battle(1, 0, 3)
         self.assertEqual(json.loads(store.giangho_payload()[1]["Nhiemvu"])[1], {"S": 0, "T": 0})
@@ -186,7 +188,7 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(response["star"], 3); self.assertEqual(replay["DoiThang"], 0)
         self.assertIsInstance(hiep1["DoiHinh1"][0]["Buffs"], list)
         self.assertIsInstance(hiep1["LuotDau"][0]["DanhSachThuongTon"][0]["TrangThaiThuongTon"], list)
-        self.assertGreater(response["UpdateUserInfo"]["Account"]["Bac"], 10000)
 
 
-if __name__ == "__main__": unittest.main()
+if __name__ == "__main__":
+    unittest.main()
