@@ -37,15 +37,13 @@ def _battle_vogia(code: str, hp: int) -> dict:
 
 
 def _login_response(_: dict) -> dict:
-    return {"ListUserServer": [SERVER_ID], "ErrorCode": 1, "Token": "offline-token",
-            "UserId": "offline-user", "SohaToken": "", "Servers": [{"ServerID": SERVER_ID,
-            "Name": "Offline", "Url": PUBLIC_USER_URL, "Status": "online"}],
+    return {"ListUserServer": [SERVER_ID], "ErrorCode": 1, "Token": "offline-token", "UserId": "offline-user", "SohaToken": "",
+            "Servers": [{"ServerID": SERVER_ID, "Name": "Offline", "Url": PUBLIC_USER_URL, "Status": "online"}],
             "ErrorMsg": STORE.account_payload().get("DisplayName", "Offline"), "LoginCfg": None}
 
 
 def _check_user_response(_: dict) -> dict:
-    return {"LoginMessage": [], "EventAnGaLuotCount": 0, "ErrorCode": 1, "Aid": 1,
-            "UserInfo": None, "ErrorMsg": "", "ServerID": SERVER_ID}
+    return {"LoginMessage": [], "EventAnGaLuotCount": 0, "ErrorCode": 1, "Aid": 1, "UserInfo": None, "ErrorMsg": "", "ServerID": SERVER_ID}
 
 
 def _get_user_info_response(_: dict) -> dict: return STORE.user_info_payload()
@@ -75,8 +73,7 @@ def _giang_ho_response(request: dict) -> dict:
     giang_ho_idx = int(request.get("giangHoIdx", request.get("GiangHoIdx", 0)) or 0)
     nhiem_vu_idx = int(request.get("nhiemVuIdx", request.get("NhiemVuIdx", 0)) or 0)
     player_code = STORE.hero_code
-    if not player_code or player_code not in START_HEROES:
-        return {"ErrorCode": 0, "ErrorMsg": "No offline character selected"}
+    if not player_code or player_code not in START_HEROES: return {"ErrorCode": 0, "ErrorMsg": "No offline character selected"}
     enemy_code = "NV_PhongThanhDuong" if player_code != "NV_PhongThanhDuong" else "NV_LenhHoXung"
     player_hp = START_HEROES[player_code]["Mau"]; enemy_hp = 100; star = 3; reward_bac = 100
     try:
@@ -102,6 +99,7 @@ ROUTES = {"login": _login_response, "checkuser": _check_user_response, "getuseri
 class DMCHandler(BaseHTTPRequestHandler):
     server_version = "DMCOffline/0.6"
     def log_message(self, fmt: str, *args: object) -> None: log.info("%s - %s", self.client_address[0], fmt % args)
+    def _gm_allowed(self) -> bool: return self.client_address[0] in {"127.0.0.1", "::1"}
 
     def _send_plain(self, status: int, body: str, content_type: str = "text/plain; charset=utf-8") -> None:
         raw = body.encode("utf-8"); self.send_response(status); self.send_header("Content-Type", content_type)
@@ -112,8 +110,12 @@ class DMCHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
-        if path == "/gm": self._send_plain(200, gm_html(), "text/html; charset=utf-8"); return
-        if path == "/gm/api/state": self._send_json(200, handle_gm_api(STORE, path)); return
+        if path == "/gm":
+            if not self._gm_allowed(): self._send_plain(403, "GM tool is localhost-only"); return
+            self._send_plain(200, gm_html(), "text/html; charset=utf-8"); return
+        if path == "/gm/api/state":
+            if not self._gm_allowed(): self._send_json(403, {"ok": False, "error": "GM tool is localhost-only"}); return
+            self._send_json(200, handle_gm_api(STORE, path)); return
         if path in {"/", "/health"}:
             self._send_json(200, {"ok": True, "service": "DaiMinhChu-Offline", "user_url": PUBLIC_USER_URL,
                 "battle_url": PUBLIC_BATTLE_URL, "save_file": str(STORE.path), "has_character": bool(STORE.hero_code),
@@ -125,9 +127,9 @@ class DMCHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0") or "0")
         raw_body = self.rfile.read(length).decode("utf-8", errors="replace")
         if parsed_path.startswith("/gm/api/"):
+            if not self._gm_allowed(): self._send_json(403, {"ok": False, "error": "GM tool is localhost-only"}); return
             try:
-                body = json.loads(raw_body or "{}")
-                result = handle_gm_api(STORE, parsed_path, body)
+                result = handle_gm_api(STORE, parsed_path, json.loads(raw_body or "{}"))
                 self._send_json(200 if result.get("ok") else 404, result)
             except Exception as exc:
                 log.exception("GM API failed: %s", parsed_path); self._send_json(400, {"ok": False, "error": str(exc)})
