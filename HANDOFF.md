@@ -6,34 +6,33 @@
 
 ## 1. Mục tiêu
 
-Phục dựng **Đại Minh Chủ Việt Nam 8.0.2** để chơi local/offline, ưu tiên giữ client/UI/assets gốc. Hướng hiện tại là tái tạo backend tương thích thay vì cần GS gốc.
+Phục dựng **Đại Minh Chủ Việt Nam 8.0.2** để chơi local/offline, ưu tiên giữ client/UI/assets gốc. Hướng hiện tại: backend tương thích local.
 
-Ưu tiên:
+Flow mục tiêu:
 
 ```text
 Login -> user/tướng/đội hình -> Giang Hồ -> BattleReplay -> progression/save
 ```
 
-Chưa ưu tiên: nạp tiền, Soha account thật, chat, bang hội/PvP online, liên server, leaderboard.
+Chưa ưu tiên: Soha account thật, nạp tiền, chat, bang hội/PvP online, liên server, leaderboard.
 
 ## 2. Repo / APK
 
-Repo: `maxskill115/DaiMinhChu-Offline`, branch `main`, hiện public.
+Repo: `maxskill115/DaiMinhChu-Offline`, branch `main`.
 
-Không commit APK gốc, full asset/config dump, credential hay keystore.
-
-APK mẫu:
+APK mục tiêu:
 
 ```text
-Đại Minh Chủ (Dai Minh Chu)_8.0.2_apkcombo.com.apk
+package: vn.sohagame.dminhchu
+version: 8.0.2
 size: 52,568,975 bytes
 SHA256: 2ff6b4db2177dc1362c20866750a48371f283a79a40335d3293a26e39e7e4194
-package: vn.sohagame.dminhchu
+Unity 4.x / Mono / ARMv7
 ```
 
-## 3. Engine / protocol — CONFIRMED STATIC
+Không commit APK gốc, full asset/config dump, credential hoặc keystore.
 
-Unity 4.x + Mono; `Assembly-CSharp.dll` còn nhiều symbol C#.
+## 3. Network/protocol — CONFIRMED STATIC
 
 Login URL gốc:
 
@@ -55,280 +54,198 @@ AES/Rijndael-128 CBC PKCS7 UTF-8
 Key = IV = 03051f0205060315061705202a1f5620
 ```
 
-## 4. Core config trong APK — CONFIRMED STATIC
+## 4. Client patch
 
-`GameManager.Awake()` load trước login các Unity Resources:
-
-```text
-ConfigFile/NhanVat
-ConfigFile/TrangBi
-ConfigFile/VoCong
-ConfigFile/GiangHo
-ConfigFile/Other
-ConfigFile/ChanKhi
-ConfigFile/VatPhamTieuThu
-ConfigFile/HuyetChien
-ConfigFile/KimCham
-ConfigFile/LongChau
-...
-```
-
-=> local `/Login` có thể trả `LoginCfg=null` để bỏ remote config update mà core gameplay config vẫn tồn tại.
-
-Đã parse `ConfigFile/NhanVat` khoảng 333 nhân vật. Không commit dump gốc.
-
-## 5. Login / first character — CONFIRMED STATIC + SERVER IMPLEMENTED
-
-`tools/patch_client.py` đã patch đúng APK SHA trên:
+`tools/patch_client.py` patch đúng APK SHA:
 
 1. login URL sang local;
 2. `LoginForm.OnLoginBtnClick` bỏ `SohaSDKManager.Login()` và gọi trực tiếp `HTTP.Instance.Login(...)`.
 
+APK patched đã zipalign + ký test. `apksigner verify`:
+
+```text
+v1=true
+v2=true
+v3=true
+```
+
+## 5. Core config — CONFIRMED STATIC
+
+Client có embedded configs: NhanVat, TrangBi, VoCong, GiangHo, Other, ChanKhi, VatPhamTieuThu, HuyetChien, KimCham, LongChau...
+
+`LoginCfg=null` có thể dùng để bỏ remote config update. Khoảng 333 nhân vật đã được parse từ NhanVat; không commit dump gốc.
+
+## 6. Login / first character — CONFIRMED STATIC + SERVER IMPLEMENTED
+
 Flow:
 
 ```text
-/Login
- -> /CheckUser
- -> /GetUserInfo
+/Login -> /CheckUser -> /GetUserInfo
 ```
 
-Nếu `NhanVat.Count==0` → Form 13 = `BeginCutsceneForm`.
+Nếu `NhanVat.Count==0` -> `BeginCutsceneForm` / Form 13.
 
-Ba start hero:
+Starter:
 
 ```text
-NV_PhongThanhDuong -> Phong Thanh Dương, Mau260 Cong284 Thu155 NoiLuc234
-NV_LenhHoXung      -> Lệnh Hồ Xung,      Mau180 Cong180 Thu60  NoiLuc300
-NV_SoLuuHuong      -> Sở Lưu Hương,      Mau250 Cong150 Thu160 NoiLuc305
+NV_PhongThanhDuong
+NV_LenhHoXung
+NV_SoLuuHuong
 ```
 
-`/SelectStartNhanVat` request:
+`/SelectStartNhanVat` request: `Aid`, `Token`, `NhanVatCode`.
+
+## 7. Home / Giang Hồ / Battle — CONFIRMED STATIC + SERVER IMPLEMENTED
+
+Home = Form 3. Giang Hồ = Form 4. Battle = Form 7.
+
+Battle endpoint:
 
 ```text
-Aid int
-Token string
-NhanVatCode string
-```
-
-Response là `HTTPGetUserInfoResponse`; success `UpdateData()` rồi đi Home/Form 3. Prototype dùng hero ID 1 + `DoiHinh.Slot1=1`.
-
-## 6. Home -> Giang Hồ — CONFIRMED STATIC
-
-`MenuGroup.OnGiangHoBtnClick()` đặt `GameManager.ActiveForm=4`; Form 4 = `GiangHoForm`.
-
-Mở Giang Hồ không cần request mạng ngay; UI dùng embedded `ConfigManager.giangHoCfgs` + `HTTP.UserInfo.Data`.
-
-User mới `GiangHo=[]` vẫn hợp lệ: client tự tạo record `{S:0,T:0}` cho mission đầu chapter 0.
-
-## 7. Battle.asmx/GiangHo — CONFIRMED STATIC
-
-Click mission gọi:
-
-```text
-HTTP.DanhGiangHo(...)
 POST <BattleURL>/GiangHo
 ```
 
-Request:
+Request fields:
 
 ```text
-aid int32
-token string
-giangHoIdx uint8
-nhiemVuIdx uint8
+aid
+token
+giangHoIdx
+nhiemVuIdx
 ```
 
-`BattleURL` = `User.asmx` đổi thành `Battle.asmx`.
+Server hiện tạo BattleReplay deterministic 1v1 / 1 hiệp / 1 đòn thường, Team1 thắng 3 sao.
 
-Response root:
+## 8. Progress/save — SERVER IMPLEMENTED + TESTED
 
-```text
-BattleReplay   KetQuaTranDau
-Reward         BattleReward
-giangHoIdx     uint8
-nhiemVuIdx     uint8
-star           uint8
-UpdateUserInfo HTTPGetUserInfoResponse
-ErrorCode / ErrorMsg
-```
-
-Success → Form 7 `BattleForm` → `PlayGame(replay,false)`.
-
-## 8. BattleReplay tối thiểu — CONFIRMED STATIC + SERVER TESTED
-
-DTO chính:
-
-```text
-KetQuaTranDau: Team1, Team2, DoiThang, Hiep1/Hiep2/Hiep3
-HiepDau: DoiHinh1, DoiHinh2, LuotDau
-VoGia: Name, Mau, NoiLuc, Buffs, BuaChu, BiThuat
-LuotDau: DoiTanCong, NguoiTanCong, DanhSachThuongTon, VoCong
-ThuongTon: Value, TrangThaiThuongTon
-```
-
-Team enum:
-
-```text
-Team1=0
-Team2=1
-```
-
-`VoCong=""` dùng nhánh normal attack, tránh lookup skill config.
-
-Null-safety tối thiểu đã reverse: Team1/2, Hiep1, 2 đội hình, LuotDau, Buffs, DanhSachThuongTon và TrangThaiThuongTon phải non-null. Hiep2/Hiep3 có thể null.
-
-Server hiện tạo replay deterministic 1v1 / 1 hiệp / 1 đòn thường, Team1 thắng 3 sao.
-
-## 9. Progress Giang Hồ — PHÁT HIỆN MỚI, CONFIRMED STATIC
-
-Class:
-
-```text
-giangho.GiangHoIndx int
-giangho.HoanThanh int
-giangho.Nhiemvu string
-```
-
-`HTTPUserInfo.GetNhiemVuGiangHo()` gọi generic đã resolve chính xác:
-
-```text
-LitJson.JsonMapper.ToObject<List<HTTPNhiemVuGiangHoRecord>>(Nhiemvu)
-```
-
-=> `Nhiemvu` là **JSON string chứa array**.
-
-Record:
-
-```text
-S byte = best star (0..3)
-T byte = số lượt đã đánh mission trong ngày
-```
-
-`GH_NhiemVuSlider` dùng **độ dài array** làm ranh giới mission đã unlock. Ví dụ sau thắng mission 0:
-
-```json
-[{"S":3,"T":1},{"S":0,"T":0}]
-```
-
-Record thứ 2 mở mission 1.
-
-`HoanThanh>0` làm client mở chapter `GiangHoIndx+1`.
-
-Embedded `ConfigFile/GiangHo` đã parse:
-
-```text
-92 chapter
-1405 mission
-mission/chapter min=6 max=17
-chapter 0 có 6 mission
-chapter 1 có 7 mission
-```
-
-`server/state.py` giữ toàn bộ 92 mission-counts dạng structural integers, không lưu full config/dialogue.
-
-## 10. Save local — SERVER IMPLEMENTED + SERVER TESTED
-
-Mới thêm `server/state.py`.
-
-File save mặc định:
+`server/state.py` lưu JSON tại:
 
 ```text
 server/local_data/save.json
 ```
 
-Giữ:
+GiangHo `Nhiemvu` là JSON-string array của `{S,T}`:
 
 ```text
-hero_code / hero_level / hero_exp
-account: DisplayName, Level, Exp, ExpMax, Bac, Vang, Vip
-giangho[]: GiangHoIndx, HoanThanh, missions[{S,T}]
+S = best star
+T = lượt đánh
 ```
 
-`/SelectStartNhanVat` persist hero ngay. Restart server → `/GetUserInfo` trả lại hero + `DoiHinh.Slot1=1`, nên theo static flow client đi thẳng Home thay vì chọn nhân vật lại.
-
-Sau battle Giang Hồ:
-
-1. validate mission đã unlock;
-2. `S=max(oldS,newStar)`;
-3. `T += 1`;
-4. thắng mission thường → append `{S:0,T:0}` để mở mission kế;
-5. thắng mission cuối → `HoanThanh=1`;
-6. cộng reward bạc;
-7. persist JSON;
-8. trả `UpdateUserInfo.Account/NhanVat/GiangHo`.
-
-Reset save:
-
-```bat
-cd server
-python reset_save.py
-```
-
-## 11. Server hiện tại
-
-File chính:
+Embedded GiangHo structure đã xác nhận:
 
 ```text
-server/app.py       # DMCOffline/0.4
-server/state.py     # JSON save + GiangHo progression
-server/crypto.py
-server/test_server.py
-server/smoke_client.py
-server/reset_save.py
+92 chapter
+1405 mission
+chapter 0: 6 mission
+chapter 1: 7 mission
 ```
 
-Routes:
+Server persist starter, bạc và GiangHo progression.
 
-```text
-GET /health
-POST /Login
-POST /CheckUser
-POST /GetUserInfo
-POST /SelectStartNhanVat
-POST /Server/Webservice/Battle.asmx/GiangHo
-```
+## 9. Tests — SERVER TESTED
 
-## 12. Tests — SERVER TESTED
+11 unit tests pass trên Windows ngày 2026-08-18.
 
-Sau persistence/progression: **11 unit tests pass local**.
-
-Bao gồm:
-
-```text
-AES roundtrip
-new account không có hero
-3 start heroes persist
-reload save trả hero + DoiHinh
-battle đầu mở mission kế
-Nhiemvu JSON đúng shape
-replay giữ best star + tăng T
-locked mission bị reject
-complete chapter 0 -> HoanThanh=1
-chapter 1 unlock sau chapter 0
-minimal BattleReplay null-safe
-```
-
-Encrypted HTTP smoke pass:
+Encrypted HTTP smoke cũng pass:
 
 ```text
 Login -> CheckUser -> GetUserInfo -> SelectStartNhanVat -> Battle.asmx/GiangHo
 ```
 
-Kết quả test thực local sau battle đầu:
+## 10. Server runtime hiện tại
+
+Server chạy:
 
 ```text
-ErrorCode=1
-winner=0
-star=3
-turns=1
-Nhiemvu=[{"S":3,"T":1},{"S":0,"T":0}]
-Bac=10100
-save.json được tạo thành công
+DMC_BASE_URL=http://192.168.1.14:8000
+Listen: 0.0.0.0:8000
+User.asmx: http://192.168.1.14:8000/Server/Webservice/User.asmx
+Battle.asmx: http://192.168.1.14:8000/Server/Webservice/Battle.asmx
 ```
 
-**Đây vẫn là SERVER TESTED, không phải client runtime.**
+LDPlayer truy cập `/health` thành công.
 
-## 13. Trạng thái chính xác
+## 11. Emulator compatibility — CONFIRMED RUNTIME
+
+### LDPlayer 64-bit
+
+Cả APK gốc và patched đều crash gần lúc Unity/OpenGL init, process chết signal 6. Vì APK gốc cũng crash nên không quy lỗi cho patch/server.
+
+### LDPlayer 32-bit
+
+**Đây là môi trường runtime đúng hiện tại.**
+
+Bản patched signed đã khởi động thành công đến màn hình **Đại Minh Chủ / Bắt đầu / Phiên bản 8.0.0**.
+
+Khi nhấn Bắt đầu, client thật đã giao tiếp thành công với local backend qua AES:
+
+```text
+2026-08-18 10:35:19 POST /Server/Webservice/User.asmx/Login -> HTTP 200 ErrorCode=1
+2026-08-18 10:35:24 POST /Server/Webservice/User.asmx/CheckUser -> HTTP 200 ErrorCode=1
+2026-08-18 10:35:24 POST /Server/Webservice/User.asmx/GetUserInfo -> HTTP 200 ErrorCode=1
+```
+
+Request `/GetUserInfo` runtime thật hỏi đủ 21 property:
+
+```text
+account, nhanVat, trangBi, voCong, orb, vatPhamTieuThu,
+giaTriThoiGian, doiHinh, giangHo, tanChuong, honNhanVat,
+mail, banbe, danhhieu, danhson, serverinfo, lienminh,
+kimcham, moiruou, longchau, amkhi
+```
+
+Server hiện chỉ trả các nhóm chính:
+
+```text
+Account
+GiaTriThoiGian
+NhanVat=[]
+GiangHo=[]
+```
+
+Sau `/GetUserInfo`, client **chưa chuyển tiếp sang màn chọn starter/Home** và có hiện thông báo lỗi/kẹt. Client tiếp tục lặp `CheckUser -> GetUserInfo` khi thử lại.
+
+Đây là mốc **CONFIRMED RUNTIME** rất quan trọng:
+
+```text
+patched APK boot OK trên LDPlayer 32-bit
+network route OK
+AES request/response OK
+/Login OK runtime
+/CheckUser OK runtime
+/GetUserInfo OK ở transport/runtime
+```
+
+Blocker hiện tại nằm **sau khi client nhận/decode GetUserInfo**, không còn ở emulator/network/AES/login URL.
+
+## 12. HYPOTHESIS hiện tại
+
+Khả năng cao response `/GetUserInfo` thiếu một hoặc nhiều object/list mà client runtime dereference ngay sau `UpdateData()`.
+
+Đây mới là giả thuyết. Không được tự ý coi nhóm nào bắt buộc cho tới khi có logcat/static dereference xác nhận.
+
+`server/state.py::user_info_payload()` hiện chỉ thêm `DoiHinh` khi đã có hero; user mới không có hero nên response runtime không có `DoiHinh`.
+
+## 13. Việc cần làm NGAY
+
+1. Trên LDPlayer 32-bit, clear logcat.
+2. Mở game và nhấn **Bắt đầu** đúng một lần để tái hiện lỗi sau `/GetUserInfo`.
+3. Lấy logcat từ lúc `/GetUserInfo` tới khi popup/kẹt, ưu tiên `Unity`, `NullReferenceException`, `ArgumentNullException`, `LitJson`, `HTTP`, `GameManager`, `Exception`.
+4. Reverse đúng field/object gây lỗi.
+5. Chỉ bổ sung minimal fixture cần thiết vào `/GetUserInfo` + unit test.
+6. Retest runtime đến `BeginCutsceneForm`.
+7. Sau đó test `/SelectStartNhanVat` -> Home -> GiangHo -> battle.
+
+Lệnh logcat dùng ADB của LDPlayer nếu instance là `emulator-5554`:
+
+```bat
+adb -s emulator-5554 logcat -c
+adb -s emulator-5554 logcat
+```
+
+Không dùng LDPlayer 64-bit cho test chính lúc này.
+
+## 14. Trạng thái chính xác
 
 ```text
 CONFIRMED STATIC:
@@ -341,101 +258,19 @@ SERVER IMPLEMENTED:
 SERVER TESTED:
   AES + HTTP chain + persistence + mission unlock
 
-CLIENT RUNTIME:
-  LDPlayer launches process but patched APK currently aborts before login (signal 6)
+CONFIRMED RUNTIME (LDPlayer 32-bit):
+  APK patched boot
+  /Login
+  /CheckUser
+  /GetUserInfo transport/decrypt
+
+RUNTIME BLOCKER:
+  client không đi tiếp sau GetUserInfo; cần logcat xác định object/field thiếu
 ```
 
-Không được nói game đã vào Home/phát trận/hiện sao thành công trên Android cho tới khi có runtime log xác nhận.
-
-## 14. Runtime LDPlayer — CONFIRMED RUNTIME FAILURE (2026-08-18)
-
-Môi trường hiện dùng LDPlayer. PC/server IP đã xác nhận LDPlayer truy cập được:
-
-```text
-http://192.168.1.14:8000/health
-```
-
-Server quảng bá đúng:
-
-```text
-http://192.168.1.14:8000/Server/Webservice/User.asmx
-http://192.168.1.14:8000/Server/Webservice/Battle.asmx
-```
-
-APK đã patch bằng `tools/patch_client.py`, zipalign và ký test; `apksigner verify --verbose` báo v1/v2/v3 đều true.
-
-Runtime logcat khi mở patched APK:
-
-```text
-ActivityManager START vn.sohagame.dminhchu/.UnityActivity
-SohagameSDK init chạy
-libMesgLog.so load
-libmain.so load qua Houdini/native bridge
-Unity/OpenGL ES init bắt đầu
-sau ~1.7 giây process chết
-Zygote: Process ... exited due to signal (6)
-ActivityManager: Process vn.sohagame.dminhchu has died
-```
-
-Không thấy Java `FATAL EXCEPTION` trong log thu được. Crash xảy ra **trước khi có request `/Login` đến local server**.
-
-Có log GL như `EGL_BAD_MATCH` / framebuffer completeness, nhưng chưa đủ để kết luận đây là nguyên nhân; hiện chỉ là **HYPOTHESIS**.
-
-### Việc cần làm tiếp theo
-
-Ưu tiên A/B test để tách lỗi emulator khỏi lỗi patch/rebuild:
-
-1. cài APK gốc `daiminhchu.apk` lên cùng LDPlayer và xem nó có vào được màn hình game hay cũng signal 6;
-2. nếu APK gốc chạy, lỗi nằm trong pipeline patch/rebuild/sign hoặc IL patch;
-3. nếu APK gốc cũng crash, ưu tiên tương thích Unity 4.x/ARMv7/Houdini/renderer của LDPlayer;
-4. lấy crash buffer/tombstone chi tiết bằng `adb logcat -b crash`, `adb shell ls /data/tombstones` (nếu quyền cho phép), hoặc bugreport;
-5. nếu cần, tạo bản patch chỉ đổi URL, chưa patch `OnLoginBtnClick`, để isolate IL patch.
-
-## 15. Việc cần làm NGAY ở chat tiếp theo
-
-### Ưu tiên #1: isolate crash Android/emulator
-
-1. A/B test APK gốc trên chính LDPlayer hiện tại;
-2. lấy `adb logcat -b crash -d` ngay sau khi crash;
-3. nếu gốc chạy, build 2 biến thể: URL-only và URL+IL-login-patch để xác định patch nào gây abort;
-4. nếu gốc cũng crash, thử LDPlayer 32-bit/Android thấp hơn hoặc renderer khác trước khi sửa protocol/backend.
-
-Expected khi client runtime vượt qua crash:
-
-```text
-/Login
-/CheckUser
-/GetUserInfo
-BeginCutsceneForm
-/SelectStartNhanVat
-Home
-GiangHo
-/Battle.asmx/GiangHo
-BattleForm -> result
-```
-
-Nếu fail sau khi đã có request mạng: lấy **request cuối + server log + adb logcat/stack** rồi reverse đúng điểm fail, không đoán.
-
-## 16. Commit/mốc gần nhất
-
-Các mốc mới nhất trước HANDOFF update này:
-
-```text
-4619fcf7  root README: save local
-533d8f4d  server README: progression
-3ff2979e  app v0.4 + tests + reset_save
-21b3fd91  state.py JSON save/progression
-20891385  handoff GiangHo/BattleReplay
-f5abbd8d  README BattleReplay
-42ce749f  server README smoke battle
-a5db4a1e  docs giangho-battle
-a5c9c170  smoke_client
-e217d3b1  minimal Battle.asmx/GiangHo
-```
-
-## 17. Quy tắc bắt buộc
+## 15. Quy tắc bắt buộc
 
 - Luôn phân biệt `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
-- Không commit APK/full asset dump.
+- Không commit APK/full asset dump/keystore.
 - Ưu tiên flow nhỏ, deterministic, testable.
-- **Sau mỗi mốc quan trọng phải cập nhật HANDOFF** để chat mới tiếp tục ngay, đúng yêu cầu người dùng.
+- **Sau mỗi mốc quan trọng phải cập nhật HANDOFF**.
