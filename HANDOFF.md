@@ -10,105 +10,142 @@ Phục dựng **Đại Minh Chủ Việt Nam 8.0.2** chạy local/offline, giữ
 ## 2. Client/runtime nền tảng
 APK 8.0.2 Unity 4.x/Mono/ARMv7. Signed v2 đã patch direct login + no-op `SohaSDKManager.SetUserInfo`, signature v1/v2/v3 OK.
 
-**CONFIRMED RUNTIME trên LDPlayer 32-bit:** Login -> CheckUser -> GetUserInfo -> starter -> Home. Nhiều form/menu mở được, nhưng gameplay/data backend còn thiếu.
+**CONFIRMED RUNTIME trên LDPlayer 32-bit:** Login -> CheckUser -> GetUserInfo -> starter -> Home. GM đã runtime-confirmed đổi VIP=8 và Vàng/KNB=10000.
 
-## 3. GM TOOL — CONFIRMED RUNTIME
-`http://127.0.0.1:8000/gm`
+## 3. Static endpoint audit
+Đã extract trực tiếp `Assembly-CSharp.dll`: **277 endpoint exact**.
 
-User đã xác nhận đổi được ít nhất VIP=8 và Vàng/KNB=10000. GM -> save -> GetUserInfo -> client hoạt động thật.
+Repo:
 
-## 4. Giang Hồ — PARTIAL, KHÔNG HOÀN CHỈNH
-Transport + minimal BattleReplay đã chạy runtime, nhưng roster NPC, số lượng địch, reward/item, combat script và level curve chưa phải dữ liệu gốc.
+```text
+server/static_endpoints.py
+tools/protocol_audit.py
+```
 
-Server đã persist Bạc + account EXP + main hero EXP và thay đổi NPC fixture theo ải. **Không gọi đây là nội dung Giang Hồ hoàn chỉnh.**
+`protocol_audit.py` phải cho:
 
-### Static correction mới
-Đã đối soát trực tiếp `Assembly-CSharp.dll` của APK gốc. Exact endpoint trong client là:
+```text
+Client endpoints: 277
+Missing from server allowlist: 0
+```
+
+## 4. Mốc mới: DTO audit trực tiếp từ metadata
+Trước khi user pull, đã làm thêm một lượt đối soát metadata `TypeDef/Field` trong `Assembly-CSharp.dll` và phát hiện server 0.9 còn nhiều response key đoán sai dù endpoint đã đúng.
+
+Tài liệu mới:
+
+```text
+docs/protocol/runtime-dto-audit.md
+```
+
+Các correction **CONFIRMED STATIC** chính:
+
+### GetSystemHighLight
+Exact `HTTPSystemHighLightRespone`:
+
+```text
+highLightQuery
+errorCode
+errorMsg
+```
+
+Stub cũ `SystemHighLightList/SystemHighLight` sai.
+
+### LayNhanVat
+Exact `HTTPLayNhanVatRespone`:
+
+```text
+errorCode
+errorMsg
+ListEventHon
+GetIdx
+UpdateUserInfo
+```
+
+Server 0.10 bỏ alias đoán, dùng `errorMsg` làm valid embedded hero code theo runtime callback đã quan sát.
+
+### DanhNhanhGiangHo
+Exact `HTTPDanhNhanhGiangHoResponse`:
+
+```text
+Rewards : List<BattleReward>
+GiangHoIdx
+NhiemVuIdx
+UpdateUserInfo
+ErrorCode
+ErrorMsg
+```
+
+Server 0.9 sai casing `giangHoIdx/nhiemVuIdx` và thêm field đoán. Server 0.10 đã sửa exact DTO.
+
+### Các read DTO đã sửa exact/skeleton non-null
+
+```text
+GetInfoLienMinh
+ChatGet
+GetAnhHungBang / LuanKiemBang
+GetDongNhanInfo
+GetHuyetChienInfo
+GetNienThuInfo
+GetVanTieuInfo
+NguNhacGetInfo
+GetTongKimInfo
+GetInfoBangChien
+FindLienMinh
+GetThanhVienLienMinh
+RefreshDiemLuanKiem
+GetMiniBossInfo
+```
+
+Nested DTO quan trọng cũng đã đối soát cho `HuyetChienProfile`, `NNKiemTranInfo`, `NNBiBaoShop`, `DoiDiemNPC`, `BattleReward`, v.v.
+
+## 5. Kiến trúc fallback sửa lại — quan trọng
+Server 0.9 có lỗi thiết kế: endpoint nằm trong 277 list nhưng chưa reverse DTO được trả **fake success `ErrorCode=1`**. Điều này loại 404 nhưng khiến client đi vào success callback và dễ NullReference vì thiếu data.
+
+Từ **server 0.10**:
+
+- route đã có exact/minimal DTO -> success handler riêng;
+- endpoint thuộc 277 nhưng chưa reverse -> HTTP/AES vẫn hợp lệ nhưng logical `ErrorCode/errorCode=0` với thông báo controlled unsupported;
+- endpoint không tồn tại trong 277 -> HTTP 404.
+
+=> không còn biến `404` thành `fake success + NullReference` một cách mù quáng.
+
+## 6. Giang Hồ — PARTIAL
+Minimal BattleReplay chạy runtime nhưng nội dung chưa phải game gốc.
+
+Đã persist Bạc + account EXP + hero EXP. NPC fixture thay đổi theo ải nhưng roster/item/combat script/reward gốc chưa map từ config.
+
+Exact endpoint:
 
 ```text
 /DanhNhanhGiangHo
 /ResetTurnNhiemVuGH
 ```
 
-Không dùng tên đoán `ResetTurnNhiemVuGiangHo`.
+`DanhNhanhGiangHo` hiện thực hiện tối đa 10 clear và response đã sửa theo exact DTO static. Runtime retest pending.
 
-Server 0.9 đã có explicit handler cho `DanhNhanhGiangHo`: mặc định 10 lượt, persist progress + Bạc + account EXP + hero EXP, trả aggregate/per-run reward aliases. `ResetTurnNhiemVuGH` cũng đã register exact name.
+## 7. Blocker runtime đã biết
+- **Mở tướng:** runtime cũ `WaitForLayNhanVat -> SetByName -> KeyNotFoundException`; server 0.10 đã sửa theo exact DTO, retest pending.
+- **Kỳ Ngộ:** `KyNgoForm.CreateDocCoPage -> NullReferenceException`; data issue.
+- **Luận Kiếm:** `LuanKiemBang.SyncWithNetworkData -> NullReferenceException`; server 0.10 đã dựng exact response skeleton, retest pending.
+- **Bang Chiến:** `BangChienForm.SetupGUI -> NullReferenceException`; exact root DTO đã dựng, nested semantics còn pending.
+- **Linh Thưởng:** `LinhThuongQuay.OnDoiThuongNPC1/NPC2 -> NullReferenceException`; chưa reverse data source.
 
-## 5. FULL STATIC ENDPOINT AUDIT — MỐC QUAN TRỌNG
-Từ APK gốc đã extract toàn bộ UTF-16 endpoint literals dạng `/PascalCase` trong `Assembly-CSharp.dll`.
+## 8. Server / tests mới
+Server hiện: `DMCOffline/0.10`.
 
-**CONFIRMED STATIC:** tìm được **277 endpoint names**.
-
-Repo mới có:
-
-```text
-server/static_endpoints.py
-```
-
-chứa toàn bộ 277 endpoint exact của client.
-
-Server 0.9 behavior:
-- route đã reverse/implement -> handler cụ thể;
-- route chưa reverse DTO nhưng nằm trong 277 endpoint tĩnh -> **không trả 404 nữa**, trả encrypted compatibility envelope và log `STATIC-COMPAT STUB`;
-- chỉ route không tồn tại trong inventory tĩnh mới 404.
-
-=> giảm mạnh vòng test chỉ để discover endpoint. Từ nay runtime test chủ yếu dùng để xác định **DTO/semantics**, không còn phải bắt từng endpoint name thủ công.
-
-## 6. Tool protocol audit
-Mới thêm:
+Mốc commit mới:
 
 ```text
-tools/protocol_audit.py
+8f099ba5  Đối soát DTO runtime trước khi test
+e69ca07b  Cập nhật test theo DTO đã đối soát
+a6cc341b  Đồng bộ test server với DTO runtime mới
+4c933d48  Ghi lại đối soát DTO runtime từ Assembly
 ```
 
-Chạy trực tiếp APK hoặc `Assembly-CSharp.dll`:
+Tests đã được sửa để không còn kỳ vọng schema 0.9 cũ và kiểm tra exact DTO keys mới.
 
-```bat
-python tools\protocol_audit.py daiminhchu.apk
-```
-
-Tool extract endpoint tĩnh và so với `server/static_endpoints.py`; exit code 1 nếu client có endpoint chưa được allowlist.
-
-Mục tiêu hiện tại với APK 8.0.2: `Client endpoints = 277`, `Missing from server allowlist = 0`.
-
-## 7. Runtime sweep đã biết
-404 trước đây gồm GetInfoLienMinh/CreateLienMinh/ChatGet/GetVanTieuInfo/NguNhacGetInfo/GetAnhHungBang/GetDongNhanInfo/GetHuyetChienInfo/GetNienThuInfo/GetTongKimInfo và vòng 2 BuyVatPhamTieuThu/BuyLeBao/RefreshDiemLuanKiem/GetInfoBangChien/FindLienMinh/GetThanhVienLienMinh.
-
-Tất cả tên này nay đều thuộc static coverage; không còn lý do để 404 nếu process đang chạy server 0.9.
-
-Nếu runtime vẫn thấy `FileNotFoundException` cho một endpoint thuộc 277 list => gần như chắc chắn máy đang chạy process/server code cũ hoặc chưa restart.
-
-## 8. Blocker DTO/runtime còn thật sự tồn tại
-### Mở tướng
-Runtime cũ: `WaitForLayNhanVat -> NhanVatPopup.CreateOnGetNewNhanVat -> BigNhanVatAvatar.SetByName -> KeyNotFoundException`.
-Server đã trả valid starter code + aliases và persist hero, nhưng cần runtime retest trên server mới để xác nhận exact DTO mapping.
-
-### Kỳ Ngộ
-`KyNgoForm.CreateDocCoPage -> NullReferenceException`. Đây là DTO/data issue, không phải endpoint-name issue.
-
-### Luận Kiếm
-`LuanKiemBang.SyncWithNetworkData -> NullReferenceException`. Cần reverse DTO.
-
-### Bang Chiến
-`BangChienForm.SetupGUI(HTTPGetInfoBangChienResponse) -> NullReferenceException` sau endpoint call. Cần exact DTO.
-
-### Linh Thưởng
-`LinhThuongQuay.OnDoiThuongNPC1/NPC2 -> NullReferenceException`. Cần populate data/reward tables.
-
-## 9. Server version / commits mới
-Server hiện: `DMCOffline/0.9`.
-
-Các mốc mới:
-
-```text
-b960c1ee  Thêm danh sách 277 endpoint tĩnh từ client 8.0.2
-f9b20df3  Đối soát endpoint tĩnh và loại 404 toàn client
-2e380346  Thêm tool đối soát endpoint trực tiếp từ APK
-415b3105  Test độ phủ endpoint tĩnh và đánh nhanh Giang Hồ
-```
-
-## 10. Bước tiếp theo
-User chỉ cần pull một lần, chạy tests + protocol audit, restart server 0.9. Không cần rebuild APK.
+## 9. Bước user cần làm sau khi pull
 
 ```bat
 cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
@@ -120,16 +157,23 @@ set DMC_BASE_URL=http://192.168.1.14:8000
 python app.py
 ```
 
-`/health` phải báo server 0.9, `static_endpoint_count=277`.
+`/health` phải báo:
 
-Sau mốc này không cần full-menu sweep chỉ để tìm tên endpoint nữa. Tập trung reverse exact DTO cho các feature NullReference và map dữ liệu gốc GiangHo/config.
+```text
+server_version = DMCOffline/0.10
+static_endpoint_count = 277
+```
 
-## 11. APK workspace
-`tools/apk_workspace.py` có unpack/scan/repack raw APK; Unity serialized assets vẫn cần AssetRipper/UABE/UnityPy khi sửa texture/audio/animation/effect/prefab.
+Nếu unit test lỗi, xử lý trước khi runtime test.
 
-## 12. Quy tắc dự án
-- Phân biệt rõ: `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
+## 10. APK workspace / GM
+- `tools/apk_workspace.py`: unpack/scan/repack raw APK; Unity serialized assets vẫn cần AssetRipper/UABE/UnityPy cho texture/audio/animation/effect/prefab.
+- GM: `http://127.0.0.1:8000/gm`.
+
+## 11. Quy tắc dự án
+- Phân biệt `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
 - Không commit APK/full asset dump/keystore/credential.
 - Không gọi stub là feature hoàn chỉnh.
 - Không đoán schema rồi coi như confirmed.
+- Ưu tiên static reverse DTO từ Assembly trước khi bắt user test lại.
 - **Sau mỗi milestone phải cập nhật HANDOFF.md.**
