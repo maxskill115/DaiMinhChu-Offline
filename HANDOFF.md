@@ -6,242 +6,96 @@
 
 ## 1. Mục tiêu
 
-Phục dựng **Đại Minh Chủ Việt Nam 8.0.2** để chơi local/offline, ưu tiên giữ client/UI/assets gốc. Hướng hiện tại: backend tương thích local.
+Phục dựng **Đại Minh Chủ Việt Nam 8.0.2** chạy local/offline, giữ client/UI/assets gốc càng nhiều càng tốt. Hướng chính: clean-room local compatibility backend + client patch tối thiểu.
 
-Flow mục tiêu:
-
-```text
-Login -> user/tướng/đội hình -> Giang Hồ -> BattleReplay -> progression/save
-```
-
-Chưa ưu tiên: Soha account thật, nạp tiền, chat, bang hội/PvP online, liên server, leaderboard.
-
-## 2. Repo / APK
-
-Repo: `maxskill115/DaiMinhChu-Offline`, branch `main`.
-
-APK mục tiêu:
+## 2. APK / client
 
 ```text
 package: vn.sohagame.dminhchu
 version: 8.0.2
-size: 52,568,975 bytes
+size: 52,568,975
 SHA256: 2ff6b4db2177dc1362c20866750a48371f283a79a40335d3293a26e39e7e4194
 Unity 4.x / Mono / ARMv7
+Assembly-CSharp.dll: assets/bin/Data/Managed/Assembly-CSharp.dll
 ```
 
-Không commit APK gốc, full asset/config dump, credential hoặc keystore.
+Client patch hiện tại:
 
-## 3. Network/protocol — CONFIRMED STATIC
+1. login URL -> local server;
+2. `LoginForm.OnLoginBtnClick` bỏ Soha login, gọi HTTP Login trực tiếp;
+3. `SohaSDKManager.SetUserInfo` -> `RET + NOP` để bỏ NPE từ legacy Soha SDK.
 
-Login URL gốc:
-
-```text
-http://login.minhchu.sohagame.vn/Server/Webservice/User.asmx
-```
-
-Transport:
-
-```text
-LitJson JSON -> AES -> Base64 -> WWW.EscapeURL -> POST data=<cipher>
-response -> AES decrypt -> LitJson
-```
-
-AES:
-
-```text
-AES/Rijndael-128 CBC PKCS7 UTF-8
-Key = IV = 03051f0205060315061705202a1f5620
-```
-
-## 4. Client patch
-
-`tools/patch_client.py` patch đúng APK SHA:
-
-1. login URL sang local;
-2. `LoginForm.OnLoginBtnClick` bỏ `SohaSDKManager.Login()` và gọi trực tiếp `HTTP.Instance.Login(...)`;
-3. `SohaSDKManager.SetUserInfo(...)` thành no-op để bỏ bridge Soha SDK cũ gây NPE sau `/GetUserInfo`.
-
-SetUserInfo metadata:
-
-```text
-RVA = 0xCB940
-CodeSize = 41
-original IL = 02 7b e4 23 00 04 72 2e cd 01 70 1a 8d 08 00 00 01 25 16 03 a2 25 17 05 a2 25 18 0e 04 a2 25 19 0e 05 a2 6f 99 09 00 0a 2a
-patched IL = 2a + 40 x 00
-```
-
-Patcher tự verify in-memory và on-disk; verifier riêng: `tools/verify_client.py`.
-
-## 5. Core config — CONFIRMED STATIC
-
-Client có embedded configs: NhanVat, TrangBi, VoCong, GiangHo, Other, ChanKhi, VatPhamTieuThu, HuyetChien, KimCham, LongChau...
-
-`LoginCfg=null` bỏ remote config update. Khoảng 333 nhân vật đã parse từ NhanVat; không commit dump gốc.
-
-## 6. Login / first character — CONFIRMED STATIC + SERVER IMPLEMENTED
-
-```text
-/Login -> /CheckUser -> /GetUserInfo
-```
-
-Nếu `NhanVat.Count==0` -> `BeginCutsceneForm` / Form 13.
-
-Starter:
-
-```text
-NV_PhongThanhDuong
-NV_LenhHoXung
-NV_SoLuuHuong
-```
-
-`/SelectStartNhanVat`: `Aid`, `Token`, `NhanVatCode`.
-
-## 7. Home / Giang Hồ / Battle — CONFIRMED STATIC + SERVER IMPLEMENTED
-
-Home = Form 3. Giang Hồ = Form 4. Battle = Form 7.
-
-Battle endpoint:
-
-```text
-POST <BattleURL>/GiangHo
-```
-
-Server tạo BattleReplay deterministic 1v1 / 1 hiệp / 1 đòn thường, Team1 thắng 3 sao.
-
-## 8. Progress/save — SERVER IMPLEMENTED + TESTED
-
-`server/state.py` lưu:
-
-```text
-server/local_data/save.json
-```
-
-GiangHo `Nhiemvu` là JSON-string array `{S,T}`; embedded structure: 92 chapter / 1405 mission.
-
-## 9. Tests — SERVER TESTED
-
-11 unit tests pass trên Windows 2026-08-18 trước khi thêm các compatibility stub mới.
-
-Encrypted HTTP smoke pass:
-
-```text
-Login -> CheckUser -> GetUserInfo -> SelectStartNhanVat -> Battle.asmx/GiangHo
-```
-
-## 10. Server runtime
-
-```text
-DMC_BASE_URL=http://192.168.1.14:8000
-Listen: 0.0.0.0:8000
-User.asmx: http://192.168.1.14:8000/Server/Webservice/User.asmx
-Battle.asmx: http://192.168.1.14:8000/Server/Webservice/Battle.asmx
-```
-
-LDPlayer `/health` thành công.
-
-## 11. Emulator compatibility — CONFIRMED RUNTIME
-
-### LDPlayer 64-bit
-
-APK gốc + patched đều crash gần Unity/OpenGL init. Không dùng cho test chính.
-
-### LDPlayer 32-bit
-
-ADB serial hiện tại:
-
-```text
-127.0.0.1:5601
-```
-
-## 12. Runtime blocker cũ — ĐÃ VƯỢT QUA
-
-Blocker cũ sau `/GetUserInfo` là:
-
-```text
-SohaSDKManager.SetUserInfo -> SohaSDK.setUserConfig -> NPE
-```
-
-Signed v2 đã patch đúng và runtime mới **vượt qua blocker này**.
-
-## 13. PATCHER / SIGNED V2 — CONFIRMED ARTIFACT
-
-Unsigned + signed v2 đều verify:
+Signed v2 đã verify:
 
 ```text
 Direct login patch: OK
 Soha SetUserInfo no-op: OK
-SetUserInfo CodeSize: 41
-SetUserInfo IL: 2a + 40 x 00
+v1/v2/v3 signature = true
 ```
 
-Signed APK:
+LDPlayer 64-bit không ổn; **test chính dùng LDPlayer 32-bit**.
+
+## 3. Runtime đã xác nhận
+
+**CONFIRMED RUNTIME** trên LDPlayer 32-bit:
 
 ```text
-DMC_local_v2_signed.apk
-size = 52,569,585 bytes
-v1 = true
-v2 = true
-v3 = true
+StartForm
+-> LoginForm
+-> SelectServerForm
+-> /Login
+-> /CheckUser
+-> /GetUserInfo
+-> BeginCutsceneForm
+-> /SelectStartNhanVat
+-> HomeForm
+-> GiangHoForm
+-> BattleForm
+-> BattleReplay chạy
+-> quay lại GiangHo/Home
 ```
 
-`apksigner.bat` wrapper trên máy user không tạo output; chạy trực tiếp `apksigner.jar` thì ký thành công.
+Giang Hồ là gameplay đầu tiên chạy được thật.
 
-## 14. MỐC RUNTIME MỚI — CONFIRMED: ĐÃ VÀO STARTER -> HOME
-
-Runtime log mới trên LDPlayer 32-bit:
-
-```text
-Form StartForm active
-Form LoginForm active
-Form SelectServerForm active
-Form BeginCutsceneForm active
-Form BeginCutsceneForm deactive
-Form HomeForm active
-```
-
-=> **CONFIRMED RUNTIME:** client đã vào được màn chọn starter, chọn starter thành công và vào Home. Đây là mốc lớn: login/local AES/client patch/backend first-character đều hoạt động thật.
-
-Ảnh runtime cho thấy Home hiển thị tài khoản `Offline`, level 1, tài nguyên và các menu game.
-
-## 15. Runtime discovery: nhiều chức năng khác chưa có endpoint
-
-User xác nhận hiện tại **Giang Hồ hoạt động**, còn nhiều menu khác chưa hoạt động.
-
-Log + ảnh đã xác nhận ít nhất các request còn thiếu:
-
-```text
-User.asmx/GetSystemHighLight
-Battle.asmx/GetMiniBossInfo
-User.asmx/LayNhanVat
-```
-
-Cụ thể:
-
-- `HomeForm` active -> gọi `/GetSystemHighLight` -> trước đây HTTP 404 -> Unity `java.io.FileNotFoundException`.
-- `LuyenCongForm` active -> gọi `/GetMiniBossInfo` -> trước đây HTTP 404.
-- Chợ/thu nhận đệ tử -> gọi `/LayNhanVat` -> ảnh runtime hiển thị `FileNotFoundException` endpoint này.
-
-Giang Hồ runtime:
-
-```text
-Form GiangHoForm active
-Request start GiangHO : 0 - 0
-Form BattleForm active
-BattleReplay JSON được client nhận/parse
-```
-
-Có log:
+Runtime log còn có:
 
 ```text
 Can not get nhiem vu Info from giang ho 0, nhiem vu 0
 ```
 
-nhưng BattleReplay vẫn được nhận và battle chạy; cần xử lý config/progression riêng sau.
+nhưng battle replay vẫn chạy.
 
-## 16. SERVER 0.5 — compatibility endpoints mới IMPLEMENTED (RUNTIME RETEST PENDING)
+## 4. Transport / protocol
 
-Đã thêm vào `server/app.py`:
+```text
+LitJson JSON -> AES-128-CBC PKCS7 -> Base64 -> form data=<cipher>
+response -> AES decrypt -> LitJson
+Key = IV = 03051f0205060315061705202a1f5620
+```
+
+User URL hiện dùng:
+
+```text
+http://192.168.1.14:8000/Server/Webservice/User.asmx
+```
+
+Battle URL derive `User.asmx` -> `Battle.asmx`.
+
+## 5. Server hiện tại
+
+`server/app.py` version hiện: **DMCOffline/0.6**.
+
+Core endpoint:
+
+```text
+/Login
+/CheckUser
+/GetUserInfo
+/SelectStartNhanVat
+/Battle.asmx/GiangHo
+```
+
+Compatibility endpoint runtime-discovered:
 
 ```text
 /GetSystemHighLight
@@ -249,55 +103,159 @@ nhưng BattleReplay vẫn được nhận và battle chạy; cần xử lý conf
 /LayNhanVat
 ```
 
-Trạng thái chính xác:
+Ba endpoint trên mới là stub/snapshot an toàn, **chưa gọi là feature hoàn chỉnh**.
 
-### GetSystemHighLight
-
-**CONFIRMED RUNTIME endpoint name**, response hiện là empty compatibility snapshot:
-
-```json
-{
-  "ErrorCode": 1,
-  "ErrorMsg": "",
-  "SystemHighLightList": [],
-  "SystemHighLight": []
-}
-```
-
-`SystemHighLightList` là symbol đã thấy trong Assembly-CSharp. Mục tiêu trước mắt là bỏ 404/popup; chưa tái tạo hoạt động/event thật.
-
-### GetMiniBossInfo
-
-**CONFIRMED RUNTIME endpoint name**, hiện trả empty/no-event snapshot để bỏ 404. Chưa phải MiniBoss gameplay hoàn chỉnh.
-
-### LayNhanVat
-
-**CONFIRMED RUNTIME endpoint name**, hiện trả current hero/account snapshot, không trừ vàng và chưa random/thêm đệ tử mới. Đây chỉ là compatibility stub, chưa được coi chức năng Chợ/thu nhận đã hoàn chỉnh.
-
-Server version tăng:
+Server save:
 
 ```text
-DMCOffline/0.5
+server/local_data/save.json
 ```
 
-Unknown route giờ được log rõ:
+GiangHo progress:
 
 ```text
-Unhandled route: <path>
+Nhiemvu = JSON string [{S,T},...]
+S = best stars
+T = lượt đánh
+92 chapter / 1405 mission structural counts
 ```
 
-Commits:
+## 6. GM TOOL — IMPLEMENTED, WINDOWS TEST PENDING
+
+Mới thêm:
 
 ```text
-208b8ef1  Thêm các endpoint runtime còn thiếu
-e9042395  Test các endpoint runtime mới
+server/gm.py
 ```
 
-Test file đã thêm test registration/safe response cho 3 route mới. Cần user `git pull` rồi chạy unit tests trên Windows để xác nhận tổng số test mới pass.
+Chạy server rồi mở trên PC:
 
-## 17. Việc cần làm NGAY
+```text
+http://127.0.0.1:8000/gm
+```
 
-1. User chạy:
+GM được **giới hạn localhost**; game API vẫn listen `0.0.0.0` cho LDPlayer/LAN.
+
+GM hiện hỗ trợ:
+
+- tên account;
+- Level / Exp / ExpMax;
+- VIP;
+- Bạc;
+- Vàng/KNB qua `Account.Vang` hiện có;
+- `LuotNV`, `LuotNVMax`, `LuotTD`, `LuotTDMax`, `LatTheBai`;
+- đặt starter chính + level/exp;
+- thêm hero record raw JSON;
+- raw group editor + add-item cho:
+
+```text
+TrangBi
+VoCong
+Orb
+VatPhamTieuThu
+TanChuong
+HonNhanVat
+Mail
+Banbe
+DanhHieu
+DanhSon
+ServerInfo
+LienMinh
+KimCham
+MoiRuou
+LongChau
+AmKhi
+```
+
+- raw save editor;
+- tạo/reset active local test account với tên mới.
+
+**Quan trọng:** đây là GM framework/harness rộng, không phải tất cả DTO item đã reverse hoàn chỉnh. Các record TrangBi/VoCong/KimCham/... vẫn cần reverse chính xác field/type từ `Assembly-CSharp.dll` và runtime. Raw JSON editor cho phép test ngay khi schema mới được phát hiện.
+
+Để tránh regression, group mặc định rỗng không tự động được nhét vào `/GetUserInfo`; chỉ group đã bị GM chỉnh khác mặc định mới được trả về client.
+
+Tài liệu:
+
+```text
+docs/gm-tool.md
+```
+
+## 7. APK WORKSPACE TOOL — IMPLEMENTED
+
+Mới thêm:
+
+```text
+tools/apk_workspace.py
+```
+
+Commands:
+
+```bat
+python tools\apk_workspace.py unpack daiminhchu.apk apk_workspace --clean
+python tools\apk_workspace.py scan apk_workspace
+python tools\apk_workspace.py repack apk_workspace DMC_mod_unsigned.apk
+```
+
+Tool:
+
+- unpack toàn bộ APK raw;
+- tạo `.dmc_apk_manifest.json` lưu compression/timestamp metadata;
+- phân loại image/audio/video/config/Unity data/DLL/native lib;
+- safe path extraction;
+- repack unsigned giữ compression metadata khi có thể;
+- bỏ chữ ký cũ trong META-INF;
+- optional wrapper cho `apktool-decode` / `apktool-build` nếu apktool có trong PATH.
+
+Unity serialized assets/bundles vẫn là binary; muốn export/import texture/audio/animation/prefab/effect cần AssetRipper/UABE/UnityPy ngoài tool rồi thay lại file binary đúng vị trí.
+
+Tài liệu:
+
+```text
+docs/apk-workspace.md
+```
+
+Workspace local được `.gitignore`:
+
+```text
+apk_workspace/
+apktool_out/
+```
+
+## 8. Tests
+
+Core server trước đây đã pass 11 tests + encrypted HTTP smoke.
+
+Sau compatibility endpoints đã thêm tests.
+
+GM phase vừa thêm tests cho:
+
+- account/VIP/Vang/Bac/time edit;
+- group TrangBi edit;
+- add hero/item;
+- reset account.
+
+**User chưa pull/run suite mới trên Windows tại thời điểm handoff này.**
+
+## 9. Commit/mốc mới nhất
+
+Các commit mới trong phase GM/APK workspace:
+
+```text
+37d8293c  Mở rộng save state cho GM tool
+0b437ee0  Thêm giao diện GM local
+8e53bbdc  Tích hợp GM web tool vào server
+b267e266  Thêm tool unpack/repack APK workspace
+67756af0  Thêm test GM state và API
+aadb234b  Bỏ qua workspace APK local
+00b61547  Tài liệu tool unpack/repack APK
+36e7e4a0  Giới hạn GM tool ở localhost
+df507c3b  Chỉ trả GM group khi đã chỉnh để tránh đổi runtime mặc định
+c1077bd1  Tài liệu GM tool local
+```
+
+## 10. Việc cần làm NGAY
+
+User đã yêu cầu hoàn thành 2 task trước khi pull; code đã push. Bước tiếp theo:
 
 ```bat
 cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
@@ -306,57 +264,47 @@ cd server
 python -m unittest -v
 ```
 
-2. Restart server local để nạp app.py 0.5.
-3. Không cần build APK lại; client v2 hiện tại dùng được.
-4. Mở game -> vào Home -> thử lại:
-   - Home/Hoạt động
-   - Luyện Công
-   - Chợ/Thu nhận
-5. Quan sát server console + logcat. Mục tiêu trước mắt:
+Nếu test pass:
 
-```text
-không còn HTTP 404/FileNotFoundException cho 3 endpoint trên
+```bat
+set DMC_BASE_URL=http://192.168.1.14:8000
+python app.py
 ```
 
-6. Nếu response shape chưa đúng và client báo NullReference/LitJson lỗi, reverse chính DTO đó rồi sửa minimal schema; không đoán thêm field hàng loạt.
-7. Click tuần tự các menu khác để lấy danh sách endpoint runtime thật. Mỗi endpoint mới: log request JSON -> reverse DTO -> implement fixture -> test -> runtime retest.
-8. Tiếp tục ưu tiên chức năng core theo thứ tự: Đội hình/Đệ tử -> Võ công/Trang bị -> Chợ/recruit -> Luyện công -> Kỳ ngộ/Hoạt động. Các hệ PvP/liên server để sau.
-
-## 18. Trạng thái chính xác
+Mở GM:
 
 ```text
-CONFIRMED STATIC:
-  login -> first character -> Home -> GiangHo -> BattleForm -> result
-
-SERVER IMPLEMENTED:
-  login/user/start hero/battle/save/progression
-  + compatibility stubs: GetSystemHighLight, GetMiniBossInfo, LayNhanVat
-
-SERVER TESTED:
-  core AES + HTTP chain + persistence + mission unlock
-  new 0.5 tests committed, Windows rerun pending
-
-CONFIRMED RUNTIME (LDPlayer 32-bit):
-  patched APK boot
-  /Login
-  /CheckUser
-  /GetUserInfo
-  BeginCutsceneForm
-  SelectStartNhanVat
-  HomeForm
-  GiangHoForm
-  BattleForm + BattleReplay parse/run
-
-CURRENT LIMITATION:
-  đa số feature server endpoints chưa được dựng
-  GiangHo là feature gameplay đầu tiên chạy được
-  3 endpoint 404 đầu tiên đã có stub, runtime retest pending
+http://127.0.0.1:8000/gm
 ```
 
-## 19. Quy tắc bắt buộc
+Test nhanh:
 
-- Luôn phân biệt `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
-- Không commit APK/full asset dump/keystore.
-- Không gọi compatibility stub là feature hoàn chỉnh.
-- Ưu tiên flow nhỏ, deterministic, testable.
-- **Sau mỗi mốc quan trọng phải cập nhật HANDOFF**.
+1. đổi Vang/Bac/Vip/LuotNV;
+2. vào/reload client xem account refresh;
+3. test TrangBi/VoCong bằng raw JSON chỉ sau khi biết schema DTO đúng;
+4. thử compatibility endpoints mới: Hoạt động, Luyện Công, Chợ;
+5. lấy logcat + server log cho endpoint/schema tiếp theo.
+
+APK workspace test riêng:
+
+```bat
+cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
+python tools\apk_workspace.py unpack daiminhchu.apk apk_workspace --clean
+python tools\apk_workspace.py scan apk_workspace
+```
+
+Sau sửa file:
+
+```bat
+python tools\apk_workspace.py repack apk_workspace DMC_mod_unsigned.apk
+```
+
+rồi zipalign + sign như pipeline hiện có.
+
+## 11. Quy tắc dự án
+
+- Phân biệt rõ: `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
+- Không commit APK/full asset dump/keystore/credential.
+- Không gọi stub là feature hoàn chỉnh.
+- Không đoán schema item rồi coi như confirmed; dùng GM raw editor để test, sau đó reverse chính xác.
+- **Sau mỗi milestone phải cập nhật HANDOFF.md.**
