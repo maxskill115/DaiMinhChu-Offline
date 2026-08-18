@@ -8,219 +8,144 @@
 
 Phục dựng **Đại Minh Chủ Việt Nam 8.0.2** chạy local/offline, giữ client/UI/assets gốc càng nhiều càng tốt. Hướng chính: clean-room local compatibility backend + client patch tối thiểu.
 
-## 2. APK / client
+## 2. Client/runtime nền tảng
+
+APK 8.0.2 Unity 4.x/Mono/ARMv7. Signed v2 đã patch direct login + no-op `SohaSDKManager.SetUserInfo`, signature v1/v2/v3 OK.
+
+**CONFIRMED RUNTIME trên LDPlayer 32-bit:** Login -> CheckUser -> GetUserInfo -> starter -> Home -> GiangHo -> BattleForm -> BattleReplay chạy. Giang Hồ hiện là gameplay duy nhất chạy được thật.
+
+## 3. GM TOOL — CONFIRMED RUNTIME
+
+`http://127.0.0.1:8000/gm`
+
+User đã xác nhận đổi được ít nhất:
 
 ```text
-package: vn.sohagame.dminhchu
-version: 8.0.2
-size: 52,568,975
-SHA256: 2ff6b4db2177dc1362c20866750a48371f283a79a40335d3293a26e39e7e4194
-Unity 4.x / Mono / ARMv7
-Assembly-CSharp.dll: assets/bin/Data/Managed/Assembly-CSharp.dll
+VIP = 8
+Vàng/KNB = 10000
 ```
 
-Client patch hiện tại:
+=> GM -> save -> GetUserInfo -> client hoạt động thật.
 
-1. login URL -> local server;
-2. `LoginForm.OnLoginBtnClick` bỏ Soha login, gọi HTTP Login trực tiếp;
-3. `SohaSDKManager.SetUserInfo` -> `RET + NOP` để bỏ NPE từ legacy Soha SDK.
+## 4. Runtime full-menu sweep 12:55–12:56 — CONFIRMED
 
-Signed v2 đã verify:
+User đã click gần như toàn bộ chức năng/menu trong một lần logcat. Kết luận: **ngoài Giang Hồ, các chức năng khác hiện đều lỗi/chưa hoàn chỉnh**.
 
-```text
-Direct login patch: OK
-Soha SetUserInfo no-op: OK
-v1/v2/v3 signature = true
-```
-
-LDPlayer 64-bit không ổn; **test chính dùng LDPlayer 32-bit**.
-
-## 3. Runtime đã xác nhận
-
-**CONFIRMED RUNTIME** trên LDPlayer 32-bit:
-
-```text
-StartForm
--> LoginForm
--> SelectServerForm
--> /Login
--> /CheckUser
--> /GetUserInfo
--> BeginCutsceneForm
--> /SelectStartNhanVat
--> HomeForm
--> GiangHoForm
--> BattleForm
--> BattleReplay chạy
--> quay lại GiangHo/Home
-```
-
-Giang Hồ là gameplay đầu tiên chạy được thật.
-
-Runtime log còn có:
-
-```text
-Can not get nhiem vu Info from giang ho 0, nhiem vu 0
-```
-
-nhưng battle replay vẫn chạy.
-
-## 4. Transport / protocol
-
-```text
-LitJson JSON -> AES-128-CBC PKCS7 -> Base64 -> form data=<cipher>
-response -> AES decrypt -> LitJson
-Key = IV = 03051f0205060315061705202a1f5620
-```
-
-User URL hiện dùng:
-
-```text
-http://192.168.1.14:8000/Server/Webservice/User.asmx
-```
-
-Battle URL derive `User.asmx` -> `Battle.asmx`.
-
-## 5. Server hiện tại
-
-`server/app.py` version hiện: **DMCOffline/0.6**.
-
-Core endpoint:
-
-```text
-/Login
-/CheckUser
-/GetUserInfo
-/SelectStartNhanVat
-/Battle.asmx/GiangHo
-```
-
-Compatibility endpoint runtime-discovered đã có stub:
-
-```text
-/GetSystemHighLight
-/GetMiniBossInfo
-/LayNhanVat
-```
-
-Ba endpoint trên mới là stub/snapshot an toàn, **chưa gọi là feature hoàn chỉnh**.
-
-Server save:
-
-```text
-server/local_data/save.json
-```
-
-GiangHo progress:
-
-```text
-Nhiemvu = JSON string [{S,T},...]
-S = best stars
-T = lượt đánh
-92 chapter / 1405 mission structural counts
-```
-
-## 6. GM TOOL — CONFIRMED RUNTIME
-
-GM web:
-
-```text
-http://127.0.0.1:8000/gm
-```
-
-User đã runtime-test và xác nhận GM sửa được account thật trong client:
-
-```text
-VIP -> 8
-Vàng/KNB -> 10000
-```
-
-=> **CONFIRMED RUNTIME:** GM -> save -> `/GetUserInfo` -> client refresh hoạt động cho ít nhất VIP và Vàng/KNB.
-
-GM hỗ trợ account/level/exp/VIP/Bạc/Vàng, lượt/thể lực, starter, hero raw, group editor, add item, raw save và reset active account.
-
-## 7. APK WORKSPACE TOOL — IMPLEMENTED
-
-```text
-tools/apk_workspace.py
-```
-
-Commands:
-
-```bat
-python tools\apk_workspace.py unpack daiminhchu.apk apk_workspace --clean
-python tools\apk_workspace.py scan apk_workspace
-python tools\apk_workspace.py repack apk_workspace DMC_mod_unsigned.apk
-```
-
-Unity serialized assets/bundles vẫn là binary; muốn export/import texture/audio/animation/prefab/effect cần AssetRipper/UABE/UnityPy ngoài tool rồi thay lại file binary đúng vị trí.
-
-## 8. Runtime test mới 12:45 — từng chức năng
-
-User đã vào game ổn và bắt đầu test từng chức năng một.
-
-### Mở tướng / LayNhanVat
-
-Ảnh runtime: mở tướng hiện loading `Đang kết nối` vô hạn và không nhận tướng.
-
-Server đã có `/LayNhanVat` stub nhưng runtime cho thấy **response shape/flow hiện chưa đủ đúng để client hoàn tất recruit**.
-
-Trạng thái:
-
-```text
-ENDPOINT EXISTS
-RUNTIME REQUEST/RESPONSE SHAPE NEEDS REVERSE
-NOT FUNCTIONAL YET
-```
-
-Ưu tiên hiện tại: sửa **Mở tướng** trước, không sửa hàng loạt feature cùng lúc.
-
-Cần capture đúng một lần bấm Mở tướng với:
-
-```text
-server console: LayNhanVat request + response
-adb logcat: các dòng Unity quanh LayNhanVat / exception / callback
-```
-
-Không đoán DTO tiếp nếu chưa có exact runtime evidence.
-
-### Endpoint mới nhìn thấy trực tiếp từ popup runtime
-
-Ảnh Hoạt động/Liên minh cho thấy 404:
+Các endpoint 404/FileNotFound được bắt chính xác:
 
 ```text
 User.asmx/GetInfoLienMinh
+User.asmx/CreateLienMinh
+User.asmx/ChatGet
+User.asmx/GetVanTieuInfo
+User.asmx/NguNhacGetInfo
+Battle.asmx/GetAnhHungBang
+Battle.asmx/GetDongNhanInfo
+Battle.asmx/GetHuyetChienInfo
+Battle.asmx/GetNienThuInfo
+Battle.asmx/GetTongKimInfo
 ```
 
-Ảnh một màn tỷ thí/hoạt động khác cho thấy 404 endpoint đọc được gần như:
+Luyện Công vào `LuyenCongForm` rồi đồng thời gọi `GetDongNhanInfo`, `GetHuyetChienInfo`, `GetNienThuInfo`, `ChatGet`.
+
+Liên Minh/Home gọi `GetInfoLienMinh`; thao tác tạo liên minh gọi `CreateLienMinh`; một nhánh xếp hạng gọi `GetAnhHungBang`.
+
+Vận Tiêu, Ngũ Nhạc, Tống Kim lần lượt gọi các endpoint tên tương ứng ở trên.
+
+## 5. Mở tướng / LayNhanVat — exact blocker mới
+
+`/LayNhanVat` không còn 404. Client đã chạy tới `HTTP.WaitForLayNhanVat`, nhưng lỗi:
 
 ```text
-User.asmx/CoHatGet
+KeyNotFoundException: The given key was not present in the dictionary
+at Dictionary<string,NhanVatCfg>.get_Item
+at BigNhanVatAvatar.SetByName(...)
+at NhanVatPopup.CreateOnGetNewNhanVat(code_name, tan_hon_count, listEventHon, GetIdx)
+at HTTP.WaitForLayNhanVat
 ```
 
-Tên `CoHatGet` cần xác nhận lại bằng server log/logcat trước khi implement vì chữ popup bị UI che/mờ.
+=> blocker chính xác: callback recruit nhận `code_name` không map được tới embedded `NhanVatCfg`. Stub cũ trả snapshot sai semantics.
 
-=> `GetInfoLienMinh` là **CONFIRMED RUNTIME endpoint name** từ popup rõ; chưa implement.
+Server 0.7 đã sửa `/LayNhanVat` theo hướng compatibility: luôn trả một code starter chắc chắn có trong embedded config (`NV_PhongThanhDuong`) và thêm candidate aliases `CodeName/code_name/NhanVatCode`, `TanHonCount`, `ListEventHon`, `GetIdx` để runtime xác định field DTO thật. **RUNTIME RETEST PENDING; chưa gọi recruit hoàn chỉnh.**
 
-## 9. Việc cần làm NGAY
+## 6. Kỳ Ngộ — exact blocker mới
 
-Chỉ xử lý **Mở tướng** trước.
+Không phải 404. Khi mở `KyNgoForm`, client ném:
 
-1. Clear logcat.
-2. Mở server console.
-3. Vào game -> Chợ/Mở tướng -> bấm đúng 1 lần.
-4. Chờ 3-5 giây.
-5. Gửi:
-   - các dòng server có `LayNhanVat request:` và `LayNhanVat response:`;
-   - logcat từ lúc bấm tới lúc spinner treo.
+```text
+NullReferenceException
+at KyNgoForm.CreateDocCoPage
+at KyNgoForm.CreateNormalPage
+at KyNgoForm.CreateUI
+at KyNgoForm.SyncWithNetworkData
+at KyNgoForm.OnActive
+```
 
-Sau khi xác định DTO/callback chính xác mới sửa `/LayNhanVat`, thêm unit test rồi runtime retest. Khi Mở tướng pass mới chuyển sang `GetInfoLienMinh`, rồi endpoint tiếp theo.
+=> cần reverse dữ liệu/network group mà `CreateDocCoPage` dereference; không được coi là endpoint 404.
+
+## 7. Server 0.7 — compatibility routes implemented, runtime retest pending
+
+Commit mới thêm route cho toàn bộ endpoint 404 bắt được trong sweep:
+
+```text
+10fbe114  Thêm compatibility route cho toàn bộ menu runtime đã bắt được
+833f8ecb  Test các route menu runtime mới
+```
+
+Server version: `DMCOffline/0.7`.
+
+Các route mới hiện là **compatibility stubs**: mục tiêu trước mắt loại 404/FileNotFound để lộ ra DTO/NullReference tiếp theo. Chưa gọi các feature này hoàn chỉnh.
+
+Route mới:
+
+```text
+getinfolienminh
+createlienminh
+chatget
+getanhhungbang
+getdongnhaninfo
+gethuyetchieninfo
+getnienthuinfo
+getvantieuinfo
+ngunhacgetinfo
+gettongkiminfo
+```
+
+Tests đã cập nhật để kiểm tra registration + success envelope và `/LayNhanVat` có valid embedded code.
+
+## 8. Việc cần làm NGAY
+
+User pull + test + restart server:
+
+```bat
+cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
+git pull
+cd server
+python -m unittest -v
+set DMC_BASE_URL=http://192.168.1.14:8000
+python app.py
+```
+
+Không cần rebuild APK.
+
+Sau đó runtime retest **full menu một lượt nữa**. Mục tiêu vòng này:
+
+1. xác nhận 10 endpoint trên không còn `FileNotFoundException`;
+2. test Mở tướng xem `KeyNotFoundException` có hết không;
+3. thu exact `NullReferenceException` / LitJson / field missing mới cho từng feature;
+4. Kỳ Ngộ xử lý riêng theo `CreateDocCoPage`.
+
+Nếu một stub trả HTTP 200 nhưng client lỗi DTO, reverse đúng DTO đó rồi thay stub bằng schema tối thiểu đúng; không đoán feature logic đầy đủ.
+
+## 9. APK workspace
+
+`tools/apk_workspace.py` đã có unpack/scan/repack raw APK; Unity serialized assets vẫn cần AssetRipper/UABE/UnityPy khi muốn sửa texture/audio/animation/effect/prefab.
 
 ## 10. Quy tắc dự án
 
 - Phân biệt rõ: `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
 - Không commit APK/full asset dump/keystore/credential.
 - Không gọi stub là feature hoàn chỉnh.
-- Không đoán schema item rồi coi như confirmed.
-- Test từng feature một để attribution rõ.
+- Không đoán schema rồi coi như confirmed.
+- Full-menu sweep dùng để discover endpoint; sau đó sửa DTO từng feature.
 - **Sau mỗi milestone phải cập nhật HANDOFF.md.**
