@@ -60,9 +60,9 @@ Key = IV = 03051f0205060315061705202a1f5620
 
 1. login URL sang local;
 2. `LoginForm.OnLoginBtnClick` bỏ `SohaSDKManager.Login()` và gọi trực tiếp `HTTP.Instance.Login(...)`;
-3. **mới:** patch `SohaSDKManager.SetUserInfo(...)` thành no-op (`ret`) để bỏ bridge Soha SDK cũ gây NPE sau `/GetUserInfo`.
+3. patch `SohaSDKManager.SetUserInfo(...)` thành no-op (`ret`) để bỏ bridge Soha SDK cũ gây NPE sau `/GetUserInfo`.
 
-Patch #3 được xác định từ runtime thật và static metadata của đúng APK:
+Static metadata của đúng APK đã xác nhận:
 
 ```text
 SohaSDKManager.SetUserInfo RVA = 0xCB940
@@ -70,18 +70,33 @@ original IL code size = 41 bytes
 replacement IL = 0x2A (ret)
 ```
 
-APK patched trước đó đã zipalign + ký test. `apksigner verify`:
+Patcher chạy local đã in:
 
 ```text
-v1=true
-v2=true
-v3=true
+Patched legacy SohaSDKManager.SetUserInfo to no-op for offline runtime.
 ```
 
-Commit patch Soha runtime blocker:
+Nhưng runtime retest 10:58 vẫn thấy stack chạy `SohaSDKManager.SetUserInfo`, vì vậy **chưa được coi patch #3 đã có hiệu lực trên APK thực sự đang chạy**.
+
+Để phân biệt "APK output đúng nhưng LDPlayer vẫn chạy bản cũ/cache" với "patcher ghi sai", đã thêm:
 
 ```text
-db5bf82d  Patch Soha SDK user-info crash
+tools/verify_client.py
+```
+
+Tool này đọc trực tiếp APK và xác minh:
+
+```text
+Login URL
+Direct login patch
+Soha SetUserInfo no-op
+SetUserInfo IL
+```
+
+Commit tool verify:
+
+```text
+7bb09977  Thêm tool xác minh APK đã patch/cài đặt
 ```
 
 ## 5. Core config — CONFIRMED STATIC
@@ -190,9 +205,9 @@ Cả APK gốc và patched đều crash gần lúc Unity/OpenGL init, process ch
 
 **Đây là môi trường runtime đúng hiện tại.**
 
-Bản patched signed đã khởi động thành công đến màn hình **Đại Minh Chủ / Bắt đầu / Phiên bản 8.0.0**.
+Bản patched signed khởi động thành công đến màn hình Start/Login/SelectServer.
 
-Khi nhấn Bắt đầu, client thật đã giao tiếp thành công với local backend qua AES:
+Client thật đã giao tiếp thành công với local backend qua AES:
 
 ```text
 POST /Server/Webservice/User.asmx/Login -> HTTP 200 ErrorCode=1
@@ -200,70 +215,90 @@ POST /Server/Webservice/User.asmx/CheckUser -> HTTP 200 ErrorCode=1
 POST /Server/Webservice/User.asmx/GetUserInfo -> HTTP 200 ErrorCode=1
 ```
 
-Request `/GetUserInfo` runtime thật hỏi đủ 21 property:
+## 12. Runtime blocker sau GetUserInfo — CONFIRMED RUNTIME
+
+Root cause ban đầu đã xác định:
 
 ```text
-account, nhanVat, trangBi, voCong, orb, vatPhamTieuThu,
-giaTriThoiGian, doiHinh, giangHo, tanChuong, honNhanVat,
-mail, banbe, danhhieu, danhson, serverinfo, lienminh,
-kimcham, moiruou, longchau, amkhi
-```
-
-Server hiện trả tối thiểu:
-
-```text
-Account
-GiaTriThoiGian
-NhanVat=[]
-GiangHo=[]
-```
-
-## 12. Runtime blocker sau GetUserInfo — CONFIRMED RUNTIME, ROOT CAUSE FOUND
-
-Logcat chính xác trên LDPlayer 32-bit sau `WaitForCheckUser done`:
-
-```text
-AndroidJavaException: java.lang.NullPointerException:
-Attempt to invoke virtual method
-'void vn.soha.game.sdk.SohaSDK.setUserConfig(...)'
-on a null object reference
-
+AndroidJavaException: java.lang.NullPointerException
+SohaSDK.setUserConfig(...) on a null object reference
 at SohaSDKManager.SetUserInfo(...)
 at HTTP+<WaitForGetUserInfo>c__IteratorC4.MoveNext()
 ```
 
-=> blocker **không phải thiếu field `/GetUserInfo` như giả thuyết trước**. `/GetUserInfo` đã decode và flow đi tiếp đến `HTTP.WaitForGetUserInfo`; chính client sau đó gọi bridge Soha SDK legacy và Java singleton `SohaSDK` đang null trong môi trường offline.
+Patcher đã được sửa để no-op `SohaSDKManager.SetUserInfo`.
 
-Đây là **CONFIRMED RUNTIME**.
+### Retest mới lúc 10:58
 
-Fix đã commit vào `tools/patch_client.py`: `SohaSDKManager.SetUserInfo` được patch thành no-op `ret`. Chưa có runtime retest của bản patch mới tại thời điểm handoff này.
+APK được build lại từ APK gốc, zipalign và ký lại. Log mới có PID mới `4324`, flow:
+
+```text
+Form StartForm active
+Form LoginForm active
+Form SelectServerForm active
+WaitForCheckUser done
+```
+
+Nhưng vẫn xuất hiện cùng stack:
+
+```text
+SohaSDKManager.SetUserInfo(...)
+SohaSDK.setUserConfig(...) -> NPE
+```
+
+=> **CONFIRMED:** package runtime vẫn thực thi body cũ của `SetUserInfo`.
+
+Chưa kết luận nguyên nhân là patcher hay cài/cache. Bước tiếp theo bắt buộc là xác minh bytecode của:
+
+1. `DMC_local_signed.apk` trên PC;
+2. `base.apk` thực sự đang cài trong LDPlayer.
 
 ## 13. Việc cần làm NGAY
 
-1. `git pull` để lấy commit `db5bf82d`.
-2. Rebuild lại APK từ **APK gốc** bằng `tools/patch_client.py` (không patch chồng lên APK patched cũ).
-3. zipalign + ký lại bằng keystore test hiện có.
-4. Cài bản mới vào **LDPlayer 32-bit**.
-5. Giữ server local chạy tại `192.168.1.14:8000`.
-6. Clear logcat, mở game, nhấn Bắt đầu/Vào Game.
-7. Expected tiếp theo: vượt qua `SohaSDKManager.SetUserInfo` và đi vào `BeginCutsceneForm` nếu `NhanVat=[]`.
-8. Nếu lỗi mới xuất hiện, lấy stack trace chính xác rồi patch/reverse tiếp, không đoán.
-9. Khi hiện màn chọn starter, test `/SelectStartNhanVat` -> Home -> GiangHo -> battle.
+1. `git pull` lấy `tools/verify_client.py`.
+2. Chạy:
 
-ADB serial hiện tại của instance LDPlayer 32-bit trong lần test:
+```bat
+python tools\verify_client.py DMC_local_signed.apk
+```
+
+Expected nếu output trên PC đúng:
+
+```text
+Direct login patch: OK
+Soha SetUserInfo no-op: OK
+SetUserInfo IL: 2a
+```
+
+3. Lấy chính APK đang cài trong LDPlayer:
+
+```bat
+"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 shell pm path vn.sohagame.dminhchu
+```
+
+Dùng path `package:/data/app/.../base.apk` trả về để pull, ví dụ:
+
+```bat
+"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 pull /data/app/.../base.apk installed_dmc.apk
+```
+
+4. Verify APK thực cài:
+
+```bat
+python tools\verify_client.py installed_dmc.apk
+```
+
+5. Nếu PC APK = OK nhưng installed APK = MISSING -> LDPlayer chưa cài đúng bản mới. Gỡ package hoàn toàn rồi cài lại.
+6. Nếu cả hai = OK nhưng runtime vẫn chạy `SetUserInfo` -> kiểm tra Unity/Mono cache/extracted managed assembly trong app data; gỡ package + clear data/reinstall là test tiếp theo.
+7. Chỉ sau khi runtime không còn stack `SetUserInfo` mới tiếp tục tới `BeginCutsceneForm`.
+
+ADB serial hiện tại:
 
 ```text
 127.0.0.1:5601
 ```
 
-Ví dụ:
-
-```bat
-"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 logcat -c
-"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 logcat
-```
-
-Không dùng LDPlayer 64-bit cho test chính lúc này.
+Không dùng LDPlayer 64-bit cho test chính.
 
 ## 14. Trạng thái chính xác
 
@@ -279,14 +314,16 @@ SERVER TESTED:
   AES + HTTP chain + persistence + mission unlock
 
 CONFIRMED RUNTIME (LDPlayer 32-bit):
-  APK patched boot
+  APK boot
   /Login
   /CheckUser
   /GetUserInfo transport/decrypt
-  root cause sau GetUserInfo = SohaSDKManager.SetUserInfo -> Java SohaSDK null
+  root cause = legacy SohaSDK SetUserInfo call
 
-CLIENT PATCHED, RUNTIME RETEST PENDING:
-  SohaSDKManager.SetUserInfo -> no-op ret
+PATCHER:
+  claims SetUserInfo -> ret
+  runtime still executes old body
+  VERIFY INSTALLED APK PENDING
 ```
 
 ## 15. Quy tắc bắt buộc
