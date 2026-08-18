@@ -108,7 +108,26 @@ class SaveStore:
         return result
 
     def account_payload(self) -> dict[str, Any]: return deepcopy(self.data["account"])
-    def add_bac(self, value: int) -> None: self.data["account"]["Bac"] = int(self.data["account"].get("Bac", 0)) + int(value)
+
+    def add_bac(self, value: int) -> None:
+        self.data["account"]["Bac"] = int(self.data["account"].get("Bac", 0)) + int(value)
+
+    def add_account_exp(self, value: int) -> None:
+        self.data["account"]["Exp"] = int(self.data["account"].get("Exp", 0)) + int(value)
+
+    def add_main_hero_exp(self, value: int) -> None:
+        self.data["hero_exp"] = int(self.data.get("hero_exp", 0)) + int(value)
+
+    def apply_giangho_reward(self, bac: int, account_exp: int, hero_exp: int) -> None:
+        """Persist the parts of GiangHo reward whose client fields are confirmed.
+
+        Level-up formula is intentionally not invented yet; EXP accumulates and
+        remains visible/persistent until the original level curve is reversed.
+        """
+        self.add_bac(bac)
+        self.add_account_exp(account_exp)
+        self.add_main_hero_exp(hero_exp)
+        self.save()
 
     def gm_update_account(self, values: dict[str, Any]) -> None:
         allowed = {"DisplayName", "Level", "Exp", "ExpMax", "Bac", "Vang", "Vip"}
