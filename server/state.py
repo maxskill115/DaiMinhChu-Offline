@@ -195,6 +195,8 @@ class SaveStore:
         heroes = self.all_heroes_payload()
         payload: dict[str, Any] = {"ErrorCode": 1, "ErrorMsg": "", "Account": self.account_payload(),
             "GiaTriThoiGian": deepcopy(self.data["time_values"]), "NhanVat": heroes, "GiangHo": self.giangho_payload()}
-        payload.update(deepcopy(self.data["groups"]))
+        for name, value in self.data["groups"].items():
+            if name in GM_GROUP_DEFAULTS and value != GM_GROUP_DEFAULTS[name]:
+                payload[name] = deepcopy(value)
         if heroes: payload["DoiHinh"] = {"Slot1": 1}
         return payload
