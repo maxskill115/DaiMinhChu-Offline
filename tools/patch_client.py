@@ -13,6 +13,14 @@ LOGIN_URL_US_INDEX = 0x153B9
 ON_LOGIN_BTN_RVA = 0xA3998
 EXPECTED_METHOD_CODE_SIZE = 107
 
+# CONFIRMED RUNTIME on LDPlayer 32-bit: after /GetUserInfo succeeds,
+# HTTP.WaitForGetUserInfo calls SohaSDKManager.SetUserInfo(...). The legacy
+# Java SohaSDK singleton is null in the offline environment, causing:
+# AndroidJavaException -> java.lang.NullPointerException -> setUserConfig(...)
+# Patch this telemetry/account-SDK bridge to a no-op so the game can continue.
+SOHA_SET_USER_INFO_RVA = 0xCB940
+SOHA_SET_USER_INFO_CODE_SIZE = 41
+
 # LoginForm.OnLoginBtnClick -> HTTP.Instance.Login(
 #     new OnRequest(HTTP.Instance.WaitForLogin),
 #     accountInput.text,
@@ -132,25 +140,58 @@ def patch_user_string(data: bytearray, us_index: int, value: str) -> None:
         data[entry + 1 + new_len : entry + 1 + old_len] = b"\x00" * (old_len - new_len)
 
 
-def patch_login_button(data: bytearray) -> None:
-    method_off = _rva_to_offset(data, ON_LOGIN_BTN_RVA)
+def _fat_method_layout(data: bytearray, rva: int, expected_code_size: int) -> tuple[int, int, int]:
+    method_off = _rva_to_offset(data, rva)
     flags = _u16(data, method_off)
     if flags & 0x3 != 0x3:
-        raise ValueError("OnLoginBtnClick is not a fat IL method as expected")
+        raise ValueError(f"method at RVA 0x{rva:x} is not a fat IL method as expected")
 
     header_dwords = (flags >> 12) & 0xF
     header_size = header_dwords * 4
     code_size = _u32(data, method_off + 4)
-    if code_size != EXPECTED_METHOD_CODE_SIZE:
-        raise ValueError(f"unexpected OnLoginBtnClick code size: {code_size}")
-    if len(DIRECT_LOGIN_IL) > code_size:
+    if code_size != expected_code_size:
+        raise ValueError(
+            f"unexpected method code size at RVA 0x{rva:x}: "
+            f"{code_size} (expected {expected_code_size})"
+        )
+    return method_off, header_size, code_size
+
+
+def _replace_fat_method_body(
+    data: bytearray,
+    rva: int,
+    expected_code_size: int,
+    replacement_il: bytes,
+) -> None:
+    method_off, header_size, code_size = _fat_method_layout(data, rva, expected_code_size)
+    if len(replacement_il) > code_size:
         raise ValueError("replacement IL does not fit original method")
 
     code_off = method_off + header_size
-    struct.pack_into("<I", data, method_off + 4, len(DIRECT_LOGIN_IL))
-    data[code_off : code_off + len(DIRECT_LOGIN_IL)] = DIRECT_LOGIN_IL
-    data[code_off + len(DIRECT_LOGIN_IL) : code_off + code_size] = b"\x00" * (
-        code_size - len(DIRECT_LOGIN_IL)
+    struct.pack_into("<I", data, method_off + 4, len(replacement_il))
+    data[code_off : code_off + len(replacement_il)] = replacement_il
+    data[code_off + len(replacement_il) : code_off + code_size] = b"\x00" * (
+        code_size - len(replacement_il)
+    )
+
+
+def patch_login_button(data: bytearray) -> None:
+    _replace_fat_method_body(
+        data,
+        ON_LOGIN_BTN_RVA,
+        EXPECTED_METHOD_CODE_SIZE,
+        DIRECT_LOGIN_IL,
+    )
+
+
+def patch_soha_set_user_info(data: bytearray) -> None:
+    # A single IL ret is sufficient: SetUserInfo returns void and is only a
+    # bridge into the legacy Soha Android SDK. Offline gameplay does not need it.
+    _replace_fat_method_body(
+        data,
+        SOHA_SET_USER_INFO_RVA,
+        SOHA_SET_USER_INFO_CODE_SIZE,
+        b"\x2a",
     )
 
 
@@ -158,6 +199,7 @@ def patch_assembly(assembly: bytes, base_url: str) -> bytes:
     data = bytearray(assembly)
     patch_user_string(data, LOGIN_URL_US_INDEX, base_url)
     patch_login_button(data)
+    patch_soha_set_user_info(data)
     return bytes(data)
 
 
@@ -187,6 +229,7 @@ def patch_apk(input_apk: Path, output_apk: Path, base_url: str) -> None:
 
     print(f"Patched APK written to: {output_apk}")
     print(f"Login base URL: {base_url}")
+    print("Patched legacy SohaSDKManager.SetUserInfo to no-op for offline runtime.")
     print("IMPORTANT: the rebuilt APK must be zipaligned/signed before Android will install it.")
 
 
