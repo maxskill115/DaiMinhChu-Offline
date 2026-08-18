@@ -95,7 +95,7 @@ Core endpoint:
 /Battle.asmx/GiangHo
 ```
 
-Compatibility endpoint runtime-discovered:
+Compatibility endpoint runtime-discovered đã có stub:
 
 ```text
 /GetSystemHighLight
@@ -120,69 +120,26 @@ T = lượt đánh
 92 chapter / 1405 mission structural counts
 ```
 
-## 6. GM TOOL — IMPLEMENTED, WINDOWS TEST PENDING
+## 6. GM TOOL — CONFIRMED RUNTIME
 
-Mới thêm:
-
-```text
-server/gm.py
-```
-
-Chạy server rồi mở trên PC:
+GM web:
 
 ```text
 http://127.0.0.1:8000/gm
 ```
 
-GM được **giới hạn localhost**; game API vẫn listen `0.0.0.0` cho LDPlayer/LAN.
-
-GM hiện hỗ trợ:
-
-- tên account;
-- Level / Exp / ExpMax;
-- VIP;
-- Bạc;
-- Vàng/KNB qua `Account.Vang` hiện có;
-- `LuotNV`, `LuotNVMax`, `LuotTD`, `LuotTDMax`, `LatTheBai`;
-- đặt starter chính + level/exp;
-- thêm hero record raw JSON;
-- raw group editor + add-item cho:
+User đã runtime-test và xác nhận GM sửa được account thật trong client:
 
 ```text
-TrangBi
-VoCong
-Orb
-VatPhamTieuThu
-TanChuong
-HonNhanVat
-Mail
-Banbe
-DanhHieu
-DanhSon
-ServerInfo
-LienMinh
-KimCham
-MoiRuou
-LongChau
-AmKhi
+VIP -> 8
+Vàng/KNB -> 10000
 ```
 
-- raw save editor;
-- tạo/reset active local test account với tên mới.
+=> **CONFIRMED RUNTIME:** GM -> save -> `/GetUserInfo` -> client refresh hoạt động cho ít nhất VIP và Vàng/KNB.
 
-**Quan trọng:** đây là GM framework/harness rộng, không phải tất cả DTO item đã reverse hoàn chỉnh. Các record TrangBi/VoCong/KimCham/... vẫn cần reverse chính xác field/type từ `Assembly-CSharp.dll` và runtime. Raw JSON editor cho phép test ngay khi schema mới được phát hiện.
-
-Để tránh regression, group mặc định rỗng không tự động được nhét vào `/GetUserInfo`; chỉ group đã bị GM chỉnh khác mặc định mới được trả về client.
-
-Tài liệu:
-
-```text
-docs/gm-tool.md
-```
+GM hỗ trợ account/level/exp/VIP/Bạc/Vàng, lượt/thể lực, starter, hero raw, group editor, add item, raw save và reset active account.
 
 ## 7. APK WORKSPACE TOOL — IMPLEMENTED
-
-Mới thêm:
 
 ```text
 tools/apk_workspace.py
@@ -196,115 +153,74 @@ python tools\apk_workspace.py scan apk_workspace
 python tools\apk_workspace.py repack apk_workspace DMC_mod_unsigned.apk
 ```
 
-Tool:
-
-- unpack toàn bộ APK raw;
-- tạo `.dmc_apk_manifest.json` lưu compression/timestamp metadata;
-- phân loại image/audio/video/config/Unity data/DLL/native lib;
-- safe path extraction;
-- repack unsigned giữ compression metadata khi có thể;
-- bỏ chữ ký cũ trong META-INF;
-- optional wrapper cho `apktool-decode` / `apktool-build` nếu apktool có trong PATH.
-
 Unity serialized assets/bundles vẫn là binary; muốn export/import texture/audio/animation/prefab/effect cần AssetRipper/UABE/UnityPy ngoài tool rồi thay lại file binary đúng vị trí.
 
-Tài liệu:
+## 8. Runtime test mới 12:45 — từng chức năng
+
+User đã vào game ổn và bắt đầu test từng chức năng một.
+
+### Mở tướng / LayNhanVat
+
+Ảnh runtime: mở tướng hiện loading `Đang kết nối` vô hạn và không nhận tướng.
+
+Server đã có `/LayNhanVat` stub nhưng runtime cho thấy **response shape/flow hiện chưa đủ đúng để client hoàn tất recruit**.
+
+Trạng thái:
 
 ```text
-docs/apk-workspace.md
+ENDPOINT EXISTS
+RUNTIME REQUEST/RESPONSE SHAPE NEEDS REVERSE
+NOT FUNCTIONAL YET
 ```
 
-Workspace local được `.gitignore`:
+Ưu tiên hiện tại: sửa **Mở tướng** trước, không sửa hàng loạt feature cùng lúc.
+
+Cần capture đúng một lần bấm Mở tướng với:
 
 ```text
-apk_workspace/
-apktool_out/
+server console: LayNhanVat request + response
+adb logcat: các dòng Unity quanh LayNhanVat / exception / callback
 ```
 
-## 8. Tests
+Không đoán DTO tiếp nếu chưa có exact runtime evidence.
 
-Core server trước đây đã pass 11 tests + encrypted HTTP smoke.
+### Endpoint mới nhìn thấy trực tiếp từ popup runtime
 
-Sau compatibility endpoints đã thêm tests.
-
-GM phase vừa thêm tests cho:
-
-- account/VIP/Vang/Bac/time edit;
-- group TrangBi edit;
-- add hero/item;
-- reset account.
-
-**User chưa pull/run suite mới trên Windows tại thời điểm handoff này.**
-
-## 9. Commit/mốc mới nhất
-
-Các commit mới trong phase GM/APK workspace:
+Ảnh Hoạt động/Liên minh cho thấy 404:
 
 ```text
-37d8293c  Mở rộng save state cho GM tool
-0b437ee0  Thêm giao diện GM local
-8e53bbdc  Tích hợp GM web tool vào server
-b267e266  Thêm tool unpack/repack APK workspace
-67756af0  Thêm test GM state và API
-aadb234b  Bỏ qua workspace APK local
-00b61547  Tài liệu tool unpack/repack APK
-36e7e4a0  Giới hạn GM tool ở localhost
-df507c3b  Chỉ trả GM group khi đã chỉnh để tránh đổi runtime mặc định
-c1077bd1  Tài liệu GM tool local
+User.asmx/GetInfoLienMinh
 ```
 
-## 10. Việc cần làm NGAY
-
-User đã yêu cầu hoàn thành 2 task trước khi pull; code đã push. Bước tiếp theo:
-
-```bat
-cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
-git pull
-cd server
-python -m unittest -v
-```
-
-Nếu test pass:
-
-```bat
-set DMC_BASE_URL=http://192.168.1.14:8000
-python app.py
-```
-
-Mở GM:
+Ảnh một màn tỷ thí/hoạt động khác cho thấy 404 endpoint đọc được gần như:
 
 ```text
-http://127.0.0.1:8000/gm
+User.asmx/CoHatGet
 ```
 
-Test nhanh:
+Tên `CoHatGet` cần xác nhận lại bằng server log/logcat trước khi implement vì chữ popup bị UI che/mờ.
 
-1. đổi Vang/Bac/Vip/LuotNV;
-2. vào/reload client xem account refresh;
-3. test TrangBi/VoCong bằng raw JSON chỉ sau khi biết schema DTO đúng;
-4. thử compatibility endpoints mới: Hoạt động, Luyện Công, Chợ;
-5. lấy logcat + server log cho endpoint/schema tiếp theo.
+=> `GetInfoLienMinh` là **CONFIRMED RUNTIME endpoint name** từ popup rõ; chưa implement.
 
-APK workspace test riêng:
+## 9. Việc cần làm NGAY
 
-```bat
-cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
-python tools\apk_workspace.py unpack daiminhchu.apk apk_workspace --clean
-python tools\apk_workspace.py scan apk_workspace
-```
+Chỉ xử lý **Mở tướng** trước.
 
-Sau sửa file:
+1. Clear logcat.
+2. Mở server console.
+3. Vào game -> Chợ/Mở tướng -> bấm đúng 1 lần.
+4. Chờ 3-5 giây.
+5. Gửi:
+   - các dòng server có `LayNhanVat request:` và `LayNhanVat response:`;
+   - logcat từ lúc bấm tới lúc spinner treo.
 
-```bat
-python tools\apk_workspace.py repack apk_workspace DMC_mod_unsigned.apk
-```
+Sau khi xác định DTO/callback chính xác mới sửa `/LayNhanVat`, thêm unit test rồi runtime retest. Khi Mở tướng pass mới chuyển sang `GetInfoLienMinh`, rồi endpoint tiếp theo.
 
-rồi zipalign + sign như pipeline hiện có.
-
-## 11. Quy tắc dự án
+## 10. Quy tắc dự án
 
 - Phân biệt rõ: `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
 - Không commit APK/full asset dump/keystore/credential.
 - Không gọi stub là feature hoàn chỉnh.
-- Không đoán schema item rồi coi như confirmed; dùng GM raw editor để test, sau đó reverse chính xác.
+- Không đoán schema item rồi coi như confirmed.
+- Test từng feature một để attribution rõ.
 - **Sau mỗi milestone phải cập nhật HANDOFF.md.**
