@@ -96,6 +96,65 @@ def _select_start_nhan_vat_response(request: dict) -> dict:
     }
 
 
+def _system_highlight_response(_: dict) -> dict:
+    """Compatibility response for HomeForm's runtime highlight request.
+
+    CONFIRMED RUNTIME: HomeForm calls User.asmx/GetSystemHighLight immediately
+    after entering Home. The original server is gone, so for offline mode we
+    deliberately expose an empty list instead of allowing HTTP 404 to bubble
+    into Unity as java.io.FileNotFoundException.
+
+    `SystemHighLightList` is a confirmed client-side symbol. `SystemHighLight`
+    is also included as a conservative legacy alias; LitJson ignores fields the
+    target DTO does not define.
+    """
+    return {
+        "ErrorCode": 1,
+        "ErrorMsg": "",
+        "SystemHighLightList": [],
+        "SystemHighLight": [],
+    }
+
+
+def _mini_boss_info_response(_: dict) -> dict:
+    """Offline-safe empty MiniBoss snapshot.
+
+    CONFIRMED RUNTIME: LuyenCongForm calls Battle.asmx/GetMiniBossInfo. We do
+    not fabricate an active event/boss yet; an empty response removes the 404
+    while keeping this feature explicitly in compatibility-stub state.
+    """
+    return {
+        "ErrorCode": 1,
+        "ErrorMsg": "",
+        "MiniBossInfo": None,
+        "MiniBoss": None,
+        "DanhSachMiniBoss": [],
+    }
+
+
+def _lay_nhan_vat_response(_: dict) -> dict:
+    """Minimal deterministic recruit compatibility response.
+
+    The runtime Store/Chợ screen calls User.asmx/LayNhanVat. Full recruit
+    tables/cost/randomness are not reconstructed yet. Return the current local
+    hero and account snapshot so the client receives a structurally useful
+    success payload rather than HTTP 404. No currency is consumed and no new
+    character is persisted at this stage.
+    """
+    hero = STORE.hero_payload()
+    nhan_vat = [hero] if hero else []
+    return {
+        "ErrorCode": 1,
+        "ErrorMsg": "",
+        "NhanVat": nhan_vat,
+        "Account": STORE.account_payload(),
+        "UpdateUserInfo": {
+            "Account": STORE.account_payload(),
+            "NhanVat": nhan_vat,
+        },
+    }
+
+
 def _giang_ho_response(request: dict) -> dict:
     giang_ho_idx = int(request.get("giangHoIdx", request.get("GiangHoIdx", 0)) or 0)
     nhiem_vu_idx = int(request.get("nhiemVuIdx", request.get("NhiemVuIdx", 0)) or 0)
@@ -115,8 +174,6 @@ def _giang_ho_response(request: dict) -> dict:
     reward_bac = 100
 
     try:
-        # S = best star, T = daily attempt count. The store adds the next
-        # mission record after a win and marks HoanThanh on the last mission.
         STORE.complete_giangho_battle(giang_ho_idx, nhiem_vu_idx, star)
         STORE.add_bac(reward_bac)
         STORE.save()
@@ -178,12 +235,15 @@ ROUTES = {
     "checkuser": _check_user_response,
     "getuserinfo": _get_user_info_response,
     "selectstartnhanvat": _select_start_nhan_vat_response,
+    "getsystemhighlight": _system_highlight_response,
+    "getminibossinfo": _mini_boss_info_response,
+    "laynhanvat": _lay_nhan_vat_response,
     "giangho": _giang_ho_response,
 }
 
 
 class DMCHandler(BaseHTTPRequestHandler):
-    server_version = "DMCOffline/0.4"
+    server_version = "DMCOffline/0.5"
 
     def log_message(self, fmt: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], fmt % args)
@@ -228,6 +288,7 @@ class DMCHandler(BaseHTTPRequestHandler):
         route_name = parsed_path.rsplit("/", 1)[-1].lower()
         handler = ROUTES.get(route_name)
         if handler is None:
+            log.warning("Unhandled route: %s", parsed_path)
             self._send_plain(404, "not found")
             return
 
@@ -259,12 +320,15 @@ class DMCHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    log.info("Starting DaiMinhChu local compatibility server")
+    log.info("Starting Dai Minh Chu local compatibility server")
     log.info("Listen: http://%s:%s", HOST, PORT)
     log.info("Advertised User.asmx: %s", PUBLIC_USER_URL)
     log.info("Derived Battle.asmx: %s", PUBLIC_BATTLE_URL)
     log.info("Save file: %s", STORE.path)
-    log.info("Routes: Login, CheckUser, GetUserInfo, SelectStartNhanVat, GiangHo")
+    log.info(
+        "Routes: Login, CheckUser, GetUserInfo, SelectStartNhanVat, "
+        "GetSystemHighLight, GetMiniBossInfo, LayNhanVat, GiangHo"
+    )
     ThreadingHTTPServer((HOST, PORT), DMCHandler).serve_forever()
 
 
