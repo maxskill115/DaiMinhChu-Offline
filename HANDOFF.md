@@ -56,48 +56,22 @@ Key = IV = 03051f0205060315061705202a1f5620
 
 ## 4. Client patch
 
-`tools/patch_client.py` patch đúng APK SHA:
+`tools/patch_client.py` được thiết kế để patch đúng APK SHA:
 
 1. login URL sang local;
 2. `LoginForm.OnLoginBtnClick` bỏ `SohaSDKManager.Login()` và gọi trực tiếp `HTTP.Instance.Login(...)`;
 3. patch `SohaSDKManager.SetUserInfo(...)` thành no-op (`ret`) để bỏ bridge Soha SDK cũ gây NPE sau `/GetUserInfo`.
 
-Static metadata của đúng APK đã xác nhận:
+Static metadata của đúng APK:
 
 ```text
 SohaSDKManager.SetUserInfo RVA = 0xCB940
 original IL code size = 41 bytes
-replacement IL = 0x2A (ret)
+original IL = 02 7b e4 23 00 04 72 2e cd 01 70 1a 8d 08 00 00 01 25 16 03 a2 25 17 05 a2 25 18 0e 04 a2 25 19 0e 05 a2 6f 99 09 00 0a 2a
+replacement IL intended = 2a
 ```
 
-Patcher chạy local đã in:
-
-```text
-Patched legacy SohaSDKManager.SetUserInfo to no-op for offline runtime.
-```
-
-Nhưng runtime retest 10:58 vẫn thấy stack chạy `SohaSDKManager.SetUserInfo`, vì vậy **chưa được coi patch #3 đã có hiệu lực trên APK thực sự đang chạy**.
-
-Để phân biệt "APK output đúng nhưng LDPlayer vẫn chạy bản cũ/cache" với "patcher ghi sai", đã thêm:
-
-```text
-tools/verify_client.py
-```
-
-Tool này đọc trực tiếp APK và xác minh:
-
-```text
-Login URL
-Direct login patch
-Soha SetUserInfo no-op
-SetUserInfo IL
-```
-
-Commit tool verify:
-
-```text
-7bb09977  Thêm tool xác minh APK đã patch/cài đặt
-```
+`tools/verify_client.py` đọc trực tiếp APK và xác minh Login URL, direct-login patch và SetUserInfo body.
 
 ## 5. Core config — CONFIRMED STATIC
 
@@ -205,9 +179,7 @@ Cả APK gốc và patched đều crash gần lúc Unity/OpenGL init, process ch
 
 **Đây là môi trường runtime đúng hiện tại.**
 
-Bản patched signed khởi động thành công đến màn hình Start/Login/SelectServer.
-
-Client thật đã giao tiếp thành công với local backend qua AES:
+Bản patched signed khởi động thành công đến Start/Login/SelectServer và client thật đã giao tiếp thành công với local backend qua AES:
 
 ```text
 POST /Server/Webservice/User.asmx/Login -> HTTP 200 ErrorCode=1
@@ -217,7 +189,7 @@ POST /Server/Webservice/User.asmx/GetUserInfo -> HTTP 200 ErrorCode=1
 
 ## 12. Runtime blocker sau GetUserInfo — CONFIRMED RUNTIME
 
-Root cause ban đầu đã xác định:
+Root cause:
 
 ```text
 AndroidJavaException: java.lang.NullPointerException
@@ -226,43 +198,54 @@ at SohaSDKManager.SetUserInfo(...)
 at HTTP+<WaitForGetUserInfo>c__IteratorC4.MoveNext()
 ```
 
-Patcher đã được sửa để no-op `SohaSDKManager.SetUserInfo`.
+=> transport/backend đã qua; blocker là legacy Soha SDK bridge.
 
-### Retest mới lúc 10:58
+## 13. Phát hiện mới nhất — CONFIRMED: APK output thực tế CHƯA chứa Soha no-op patch
 
-APK được build lại từ APK gốc, zipalign và ký lại. Log mới có PID mới `4324`, flow:
+User đã pull repo tới commit `999082dd` và chạy `tools/verify_client.py` trên cả file signed ở PC và chính `base.apk` pull từ LDPlayer.
 
-```text
-Form StartForm active
-Form LoginForm active
-Form SelectServerForm active
-WaitForCheckUser done
-```
-
-Nhưng vẫn xuất hiện cùng stack:
+### PC artifact
 
 ```text
-SohaSDKManager.SetUserInfo(...)
-SohaSDK.setUserConfig(...) -> NPE
+python tools\verify_client.py DMC_local_signed.apk
+
+Login URL: http://192.168.1.14:8000/Server/Webservice/User.asmx
+Direct login patch: OK
+Soha SetUserInfo no-op: MISSING
+SetUserInfo IL: 02 7b e4 23 00 04 72 2e cd 01 70 1a 8d 08 00 00 01 25 16 03 a2 25 17 05 a2 25 18 0e 04 a2 25 19 0e 05 a2 6f 99 09 00 0a 2a
 ```
 
-=> **CONFIRMED:** package runtime vẫn thực thi body cũ của `SetUserInfo`.
+### Installed APK pulled directly from LDPlayer
 
-Chưa kết luận nguyên nhân là patcher hay cài/cache. Bước tiếp theo bắt buộc là xác minh bytecode của:
+ADB path:
 
-1. `DMC_local_signed.apk` trên PC;
-2. `base.apk` thực sự đang cài trong LDPlayer.
+```text
+/data/app/vn.sohagame.dminhchu-1/base.apk
+```
 
-## 13. Việc cần làm NGAY
+Verify:
 
-1. `git pull` lấy `tools/verify_client.py`.
-2. Chạy:
+```text
+Direct login patch: OK
+Soha SetUserInfo no-op: MISSING
+SetUserInfo IL: 02 7b e4 23 00 04 72 2e cd 01 70 1a 8d 08 00 00 01 25 16 03 a2 25 17 05 a2 25 18 0e 04 a2 25 19 0e 05 a2 6f 99 09 00 0a 2a
+```
+
+=> **Đã loại trừ LDPlayer cache/cài nhầm APK** ở bước này. File signed trên PC và APK thật đang cài đều cùng thiếu patch #3. Direct-login patch và URL patch có mặt, chỉ `SetUserInfo` vẫn nguyên body 41 byte.
+
+Patcher trước đó có in dòng "Patched legacy SohaSDKManager.SetUserInfo..." nhưng artifact chứng minh dòng thông báo đó không đủ để xác nhận patch đã được ghi. Phải sửa/siết pipeline để self-verify artifact trước khi sign/install.
+
+## 14. Việc cần làm NGAY
+
+1. Điều tra `tools/patch_client.py` tại bước ghi `Assembly-CSharp.dll` và xác minh `DMC_local_unsigned.apk` ngay sau patch.
+2. Xóa artifact cũ hoặc dùng tên output mới để tránh nhầm file.
+3. Sau patch, bắt buộc chạy:
 
 ```bat
-python tools\verify_client.py DMC_local_signed.apk
+python tools\verify_client.py <unsigned-apk>
 ```
 
-Expected nếu output trên PC đúng:
+và chỉ được tiếp tục zipalign/sign nếu:
 
 ```text
 Direct login patch: OK
@@ -270,27 +253,9 @@ Soha SetUserInfo no-op: OK
 SetUserInfo IL: 2a
 ```
 
-3. Lấy chính APK đang cài trong LDPlayer:
-
-```bat
-"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 shell pm path vn.sohagame.dminhchu
-```
-
-Dùng path `package:/data/app/.../base.apk` trả về để pull, ví dụ:
-
-```bat
-"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 pull /data/app/.../base.apk installed_dmc.apk
-```
-
-4. Verify APK thực cài:
-
-```bat
-python tools\verify_client.py installed_dmc.apk
-```
-
-5. Nếu PC APK = OK nhưng installed APK = MISSING -> LDPlayer chưa cài đúng bản mới. Gỡ package hoàn toàn rồi cài lại.
-6. Nếu cả hai = OK nhưng runtime vẫn chạy `SetUserInfo` -> kiểm tra Unity/Mono cache/extracted managed assembly trong app data; gỡ package + clear data/reinstall là test tiếp theo.
-7. Chỉ sau khi runtime không còn stack `SetUserInfo` mới tiếp tục tới `BeginCutsceneForm`.
+4. Verify lại file signed trước khi cài.
+5. Cài vào LDPlayer 32-bit, pull `base.apk` và verify lần cuối nếu cần.
+6. Runtime retest. Nếu không còn `SetUserInfo` NPE, tiếp tục tới BeginCutsceneForm / SelectStartNhanVat.
 
 ADB serial hiện tại:
 
@@ -300,7 +265,7 @@ ADB serial hiện tại:
 
 Không dùng LDPlayer 64-bit cho test chính.
 
-## 14. Trạng thái chính xác
+## 15. Trạng thái chính xác
 
 ```text
 CONFIRMED STATIC:
@@ -318,15 +283,15 @@ CONFIRMED RUNTIME (LDPlayer 32-bit):
   /Login
   /CheckUser
   /GetUserInfo transport/decrypt
-  root cause = legacy SohaSDK SetUserInfo call
+  blocker = legacy SohaSDK SetUserInfo call
 
-PATCHER:
-  claims SetUserInfo -> ret
-  runtime still executes old body
-  VERIFY INSTALLED APK PENDING
+CONFIRMED ARTIFACT STATE:
+  DMC_local_signed.apk: direct-login OK, SetUserInfo no-op MISSING
+  installed base.apk: direct-login OK, SetUserInfo no-op MISSING
+  => không phải LDPlayer cache; cần sửa build/patch artifact
 ```
 
-## 15. Quy tắc bắt buộc
+## 16. Quy tắc bắt buộc
 
 - Luôn phân biệt `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
 - Không commit APK/full asset dump/keystore.
