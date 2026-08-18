@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 from crypto import decrypt_text, encrypt_text
 from gm import gm_html, handle_gm_api
 from state import START_HEROES, SaveStore
+from static_endpoints import STATIC_ENDPOINTS_LOWER
 
 HOST = os.getenv("DMC_HOST", "0.0.0.0")
 PORT = int(os.getenv("DMC_PORT", "8000"))
@@ -75,8 +76,6 @@ def _pick_recruit_code() -> str:
 
 
 def _lay_nhan_vat_response(_: dict) -> dict:
-    # Runtime evidence: WaitForLayNhanVat passes a returned string into
-    # BigNhanVatAvatar.SetByName; empty/invalid code caused KeyNotFoundException.
     code = _pick_recruit_code()
     owned = {str(x.get("Name")) for x in STORE.all_heroes_payload() if isinstance(x, dict)}
     if code not in owned:
@@ -86,36 +85,34 @@ def _lay_nhan_vat_response(_: dict) -> dict:
             "Mau": stats["Mau"], "Cong": stats["Cong"], "Thu": stats["Thu"],
             "Noicong": stats["Noicong"], "VoCong1Level": 1, "KyNgoCocLevel": 1,
         })
+    # Static metadata confirms these property names exist around HTTPLayNhanVatRespone:
+    # CodeName, ListEventHon, GetIdx and callback locals tan_hon_count/code_name.
     return {
-        "ErrorCode": 1,
-        "ErrorMsg": code,
-        "errorCode": 1,
-        "errorMsg": code,
-        "CodeName": code,
-        "code_name": code,
-        "NhanVatCode": code,
-        "nhanVatCode": code,
-        "TanHonCount": 0,
-        "tanHonCount": 0,
-        "tan_hon_count": 0,
-        "ListEventHon": [],
-        "listEventHon": [],
-        "GetIdx": 0,
-        "NhanVat": STORE.all_heroes_payload(),
-        "Account": STORE.account_payload(),
+        "ErrorCode": 1, "ErrorMsg": code, "errorCode": 1, "errorMsg": code,
+        "CodeName": code, "code_name": code, "NhanVatCode": code, "nhanVatCode": code,
+        "TanHonCount": 0, "tanHonCount": 0, "tan_hon_count": 0,
+        "ListEventHon": [], "listEventHon": [], "GetIdx": 0,
+        "NhanVat": STORE.all_heroes_payload(), "Account": STORE.account_payload(),
         "UpdateUserInfo": STORE.user_info_payload(),
     }
 
 
 def _empty_feature_response(_: dict) -> dict:
-    return {"ErrorCode": 1, "ErrorMsg": "", "errorCode": 1, "errorMsg": "",
-            "List": [], "Items": [], "Data": [], "Result": []}
+    # Broad null-safe envelope for statically known endpoints whose exact DTO is not yet reconstructed.
+    # This deliberately prevents HTTP 404 while preserving a visible server warning so DTO work is trackable.
+    return {
+        "ErrorCode": 1, "ErrorMsg": "", "errorCode": 1, "errorMsg": "",
+        "List": [], "Items": [], "Data": [], "Result": [], "Reward": [], "Top": [],
+        "Info": {}, "Account": STORE.account_payload(), "UpdateUserInfo": STORE.user_info_payload(),
+        "NhanVat": STORE.all_heroes_payload(), "GiaTriThoiGian": STORE.user_info_payload().get("GiaTriThoiGian", {}),
+    }
 
 
 def _get_info_lien_minh_response(_: dict) -> dict:
     return {"ErrorCode": 1, "ErrorMsg": "", "errorCode": 1, "errorMsg": "",
-            "LienMinh": None, "InfoLienMinh": None, "ThanhVien": [],
-            "DanhSachThanhVien": [], "Account": STORE.account_payload()}
+            "LienMinh": None, "InfoLienMinh": None, "LienMinhInfo": None,
+            "ThanhVien": [], "DanhSachThanhVien": [], "danhSachThanhVien": [],
+            "Account": STORE.account_payload()}
 
 
 def _chat_get_response(_: dict) -> dict:
@@ -125,7 +122,7 @@ def _chat_get_response(_: dict) -> dict:
 
 def _event_info_response(_: dict) -> dict:
     return {"ErrorCode": 1, "ErrorMsg": "", "errorCode": 1, "errorMsg": "",
-            "Info": None, "List": [], "Items": [], "Top": [], "Reward": []}
+            "Info": {}, "List": [], "Items": [], "Top": [], "Reward": []}
 
 
 def _buy_user_info_response(_: dict) -> dict:
@@ -137,24 +134,21 @@ def _refresh_diem_luan_kiem_response(_: dict) -> dict:
 
 
 def _get_info_bang_chien_response(_: dict) -> dict:
-    return {"timeBangChien": 0, "giaiBangChien": [], "boTranBangChien": [],
-            "ErrorCode": 1, "ErrorMsg": ""}
+    return {"timeBangChien": 0, "TimeBangChien": 0, "giaiBangChien": [], "GiaiBangChien": [],
+            "boTranBangChien": [], "BoTranBangChien": [], "ErrorCode": 1, "ErrorMsg": ""}
 
 
 def _find_lien_minh_response(_: dict) -> dict:
-    return {"danhSachLM": [], "errorCode": 1, "errorMsg": "", "ErrorCode": 1, "ErrorMsg": ""}
-
-
-def _get_thanh_vien_lien_minh_response(_: dict) -> dict:
-    return {"danhSachThanhVien": [], "danhSachXinGiaNhap": [],
+    return {"danhSachLM": [], "DanhSachLM": [], "lienMinhList": [],
             "errorCode": 1, "errorMsg": "", "ErrorCode": 1, "ErrorMsg": ""}
 
 
-def _giangho_enemy(chapter_idx: int, mission_idx: int, player_code: str) -> tuple[str, int]:
-    """Use only embedded starter codes we know are valid, but vary by stage.
+def _get_thanh_vien_lien_minh_response(_: dict) -> dict:
+    return {"danhSachThanhVien": [], "DanhSachThanhVien": [], "danhSachXinGiaNhap": [],
+            "DanhSachXinGiaNhap": [], "errorCode": 1, "errorMsg": "", "ErrorCode": 1, "ErrorMsg": ""}
 
-    This is still a compatibility fixture, not the original stage roster.
-    """
+
+def _giangho_enemy(chapter_idx: int, mission_idx: int, player_code: str) -> tuple[str, int]:
     codes = list(START_HEROES)
     start = (chapter_idx * 7 + mission_idx) % len(codes)
     for offset in range(len(codes)):
@@ -163,6 +157,12 @@ def _giangho_enemy(chapter_idx: int, mission_idx: int, player_code: str) -> tupl
             return code, int(START_HEROES[code]["Mau"])
     code = codes[start]
     return code, int(START_HEROES[code]["Mau"])
+
+
+def _reward_values(giang_ho_idx: int, nhiem_vu_idx: int) -> tuple[int, int, int]:
+    return (100 + giang_ho_idx * 25 + nhiem_vu_idx * 10,
+            10 + giang_ho_idx + nhiem_vu_idx,
+            10 + giang_ho_idx + nhiem_vu_idx)
 
 
 def _giang_ho_response(request: dict) -> dict:
@@ -175,12 +175,7 @@ def _giang_ho_response(request: dict) -> dict:
     enemy_code, enemy_hp = _giangho_enemy(giang_ho_idx, nhiem_vu_idx, player_code)
     player_hp = int(START_HEROES[player_code]["Mau"])
     star = 3
-
-    # Reward now persists instead of being display-only. Values scale gently by
-    # stage until original reward tables are reverse-mapped from config.
-    reward_bac = 100 + giang_ho_idx * 25 + nhiem_vu_idx * 10
-    reward_mon_phai_exp = 10 + giang_ho_idx + nhiem_vu_idx
-    reward_hero_exp = 10 + giang_ho_idx + nhiem_vu_idx
+    reward_bac, reward_mon_phai_exp, reward_hero_exp = _reward_values(giang_ho_idx, nhiem_vu_idx)
 
     try:
         STORE.complete_giangho_battle(giang_ho_idx, nhiem_vu_idx, star)
@@ -195,33 +190,52 @@ def _giang_ho_response(request: dict) -> dict:
         "Hiep1": {
             "DoiHinh1": [_battle_vogia(player_code, player_hp)],
             "DoiHinh2": [_battle_vogia(enemy_code, enemy_hp)],
-            "LuotDau": [{
-                "DoiTanCong": 0,
-                "NguoiTanCong": 0,
-                "DanhSachThuongTon": [{"Value": enemy_hp, "TrangThaiThuongTon": []}],
-                "VoCong": "",
-            }],
+            "LuotDau": [{"DoiTanCong": 0, "NguoiTanCong": 0,
+                         "DanhSachThuongTon": [{"Value": enemy_hp, "TrangThaiThuongTon": []}], "VoCong": ""}],
         },
-        "Hiep2": None,
-        "Hiep3": None,
+        "Hiep2": None, "Hiep3": None,
+    }
+    return {
+        "giangHoIdx": giang_ho_idx, "nhiemVuIdx": nhiem_vu_idx, "star": star,
+        "BattleReplay": replay,
+        "Reward": {"Bac": reward_bac, "Vang": 0, "ExpMonPhai": reward_mon_phai_exp,
+                   "ExpNhanVat": reward_hero_exp, "Items": []},
+        "UpdateUserInfo": STORE.user_info_payload(), "ErrorCode": 1, "ErrorMsg": "",
     }
 
-    return {
-        "giangHoIdx": giang_ho_idx,
-        "nhiemVuIdx": nhiem_vu_idx,
-        "star": star,
-        "BattleReplay": replay,
-        "Reward": {
-            "Bac": reward_bac,
-            "Vang": 0,
-            "ExpMonPhai": reward_mon_phai_exp,
-            "ExpNhanVat": reward_hero_exp,
-            "Items": [],
-        },
-        "UpdateUserInfo": STORE.user_info_payload(),
-        "ErrorCode": 1,
-        "ErrorMsg": "",
-    }
+
+def _danh_nhanh_giang_ho_response(request: dict) -> dict:
+    """Compatibility implementation for the exact static endpoint /DanhNhanhGiangHo.
+
+    The client contains HTTPDanhNhanhGiangHoResponse and WaitForDanhNhanhGiangHo.
+    We accept common request aliases and execute 10 clears by default, persisting
+    progress + Bac + account EXP + main-hero EXP. Response carries both aggregate
+    and per-run reward aliases so the legacy DTO can consume the fields it knows.
+    """
+    giang_ho_idx = int(request.get("giangHoIdx", request.get("GiangHoIdx", 0)) or 0)
+    nhiem_vu_idx = int(request.get("nhiemVuIdx", request.get("NhiemVuIdx", 0)) or 0)
+    count = int(request.get("Count", request.get("count", request.get("SoLan", 10))) or 10)
+    count = max(1, min(count, 10))
+    reward_bac, reward_account_exp, reward_hero_exp = _reward_values(giang_ho_idx, nhiem_vu_idx)
+    results = []
+    try:
+        for _ in range(count):
+            STORE.complete_giangho_battle(giang_ho_idx, nhiem_vu_idx, 3)
+            STORE.apply_giangho_reward(reward_bac, reward_account_exp, reward_hero_exp)
+            results.append({"Bac": reward_bac, "Vang": 0, "ExpMonPhai": reward_account_exp,
+                            "ExpNhanVat": reward_hero_exp, "Items": []})
+    except ValueError as exc:
+        return {"ErrorCode": 0, "ErrorMsg": str(exc)}
+    total = {"Bac": reward_bac * count, "Vang": 0, "ExpMonPhai": reward_account_exp * count,
+             "ExpNhanVat": reward_hero_exp * count, "Items": []}
+    return {"ErrorCode": 1, "ErrorMsg": "", "giangHoIdx": giang_ho_idx, "nhiemVuIdx": nhiem_vu_idx,
+            "Count": count, "SoLan": count, "Reward": total, "Rewards": results, "ListReward": results,
+            "UpdateUserInfo": STORE.user_info_payload()}
+
+
+def _reset_turn_nhiem_vu_gh_response(_: dict) -> dict:
+    # Exact client string is /ResetTurnNhiemVuGH (not ResetTurnNhiemVuGiangHo).
+    return {"ErrorCode": 1, "ErrorMsg": "", "UpdateUserInfo": STORE.user_info_payload()}
 
 
 ROUTES = {
@@ -233,8 +247,8 @@ ROUTES = {
     "getminibossinfo": _mini_boss_info_response,
     "laynhanvat": _lay_nhan_vat_response,
     "giangho": _giang_ho_response,
-
-    # Runtime sweep 1.
+    "danhnhanhgiangho": _danh_nhanh_giang_ho_response,
+    "resetturnnhiemvugh": _reset_turn_nhiem_vu_gh_response,
     "getinfolienminh": _get_info_lien_minh_response,
     "createlienminh": _empty_feature_response,
     "chatget": _chat_get_response,
@@ -245,8 +259,6 @@ ROUTES = {
     "getvantieuinfo": _event_info_response,
     "ngunhacgetinfo": _event_info_response,
     "gettongkiminfo": _event_info_response,
-
-    # Runtime sweep 2 from uploaded log 13:04-13:07.
     "buyvatphamtieuthu": _buy_user_info_response,
     "buylebao": _buy_user_info_response,
     "refreshdiemluankiem": _refresh_diem_luan_kiem_response,
@@ -257,7 +269,7 @@ ROUTES = {
 
 
 class DMCHandler(BaseHTTPRequestHandler):
-    server_version = "DMCOffline/0.8"
+    server_version = "DMCOffline/0.9"
 
     def log_message(self, fmt: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], fmt % args)
@@ -281,22 +293,17 @@ class DMCHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/gm":
             if not self._gm_allowed():
-                self._send_plain(403, "GM tool is localhost-only")
-                return
-            self._send_plain(200, gm_html(), "text/html; charset=utf-8")
-            return
+                self._send_plain(403, "GM tool is localhost-only"); return
+            self._send_plain(200, gm_html(), "text/html; charset=utf-8"); return
         if path == "/gm/api/state":
             if not self._gm_allowed():
-                self._send_json(403, {"ok": False, "error": "GM tool is localhost-only"})
-                return
-            self._send_json(200, handle_gm_api(STORE, path))
-            return
+                self._send_json(403, {"ok": False, "error": "GM tool is localhost-only"}); return
+            self._send_json(200, handle_gm_api(STORE, path)); return
         if path in {"/", "/health"}:
-            self._send_json(200, {
-                "ok": True, "service": "DaiMinhChu-Offline", "user_url": PUBLIC_USER_URL,
-                "battle_url": PUBLIC_BATTLE_URL, "save_file": str(STORE.path),
+            self._send_json(200, {"ok": True, "service": "DaiMinhChu-Offline", "server_version": self.server_version,
+                "user_url": PUBLIC_USER_URL, "battle_url": PUBLIC_BATTLE_URL, "save_file": str(STORE.path),
                 "has_character": bool(STORE.hero_code), "gm_url": f"http://127.0.0.1:{PORT}/gm",
-            })
+                "static_endpoint_count": len(STATIC_ENDPOINTS_LOWER), "exact_route_count": len(ROUTES)})
             return
         self._send_plain(404, "not found")
 
@@ -306,8 +313,7 @@ class DMCHandler(BaseHTTPRequestHandler):
         raw_body = self.rfile.read(length).decode("utf-8", errors="replace")
         if parsed_path.startswith("/gm/api/"):
             if not self._gm_allowed():
-                self._send_json(403, {"ok": False, "error": "GM tool is localhost-only"})
-                return
+                self._send_json(403, {"ok": False, "error": "GM tool is localhost-only"}); return
             try:
                 result = handle_gm_api(STORE, parsed_path, json.loads(raw_body or "{}"))
                 self._send_json(200 if result.get("ok") else 404, result)
@@ -318,24 +324,32 @@ class DMCHandler(BaseHTTPRequestHandler):
 
         route_name = parsed_path.rsplit("/", 1)[-1].lower()
         handler = ROUTES.get(route_name)
+        is_static_stub = False
+        if handler is None and route_name in STATIC_ENDPOINTS_LOWER:
+            # The endpoint name is confirmed directly from Assembly-CSharp.dll.
+            # Never 404 a statically-known client endpoint; serve a compatibility
+            # envelope and log it loudly so exact DTO reconstruction remains visible.
+            handler = _empty_feature_response
+            is_static_stub = True
         if handler is None:
-            log.warning("Unhandled route: %s", parsed_path)
+            log.warning("UNHANDLED UNKNOWN route: %s", parsed_path)
             self._send_plain(404, "not found")
             return
 
         form = parse_qs(raw_body, keep_blank_values=True)
         encrypted = form.get("data", [None])[0]
         if not encrypted:
-            self._send_plain(400, "missing data")
-            return
+            self._send_plain(400, "missing data"); return
         try:
             request_obj = json.loads(decrypt_text(encrypted))
         except Exception as exc:
             log.exception("%s: decrypt/JSON failed", parsed_path)
-            self._send_plain(400, f"bad request: {exc}")
-            return
+            self._send_plain(400, f"bad request: {exc}"); return
 
-        log.info("%s request: %s", parsed_path, json.dumps(request_obj, ensure_ascii=False))
+        if is_static_stub:
+            log.warning("STATIC-COMPAT STUB %s request: %s", parsed_path, json.dumps(request_obj, ensure_ascii=False))
+        else:
+            log.info("%s request: %s", parsed_path, json.dumps(request_obj, ensure_ascii=False))
         response_obj = handler(request_obj)
         response_json = json.dumps(response_obj, ensure_ascii=False, separators=(",", ":"))
         log.info("%s response: %s", parsed_path, response_json)
@@ -349,7 +363,7 @@ def main() -> None:
     log.info("Advertised User.asmx: %s", PUBLIC_USER_URL)
     log.info("Derived Battle.asmx: %s", PUBLIC_BATTLE_URL)
     log.info("Save file: %s", STORE.path)
-    log.info("Registered game routes: %s", ", ".join(sorted(ROUTES)))
+    log.info("Exact routes: %d; static client endpoints covered: %d", len(ROUTES), len(STATIC_ENDPOINTS_LOWER))
     ThreadingHTTPServer((HOST, PORT), DMCHandler).serve_forever()
 
 
