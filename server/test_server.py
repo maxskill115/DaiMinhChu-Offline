@@ -10,11 +10,15 @@ os.environ["DMC_SAVE_FILE"] = str(Path(_TEST_DIR.name) / "save.json")
 from app import (  # noqa: E402
     PUBLIC_BATTLE_URL,
     PUBLIC_USER_URL,
+    ROUTES,
     STORE,
     _get_user_info_response,
     _giang_ho_response,
+    _lay_nhan_vat_response,
     _login_response,
+    _mini_boss_info_response,
     _select_start_nhan_vat_response,
+    _system_highlight_response,
 )
 from crypto import decrypt_text, encrypt_text  # noqa: E402
 from state import CHAPTER_MISSION_COUNTS, START_HEROES, SaveStore  # noqa: E402
@@ -63,6 +67,32 @@ class FixtureTests(unittest.TestCase):
         info = _get_user_info_response({})
         self.assertEqual(info["NhanVat"][0]["Name"], "NV_SoLuuHuong")
         self.assertEqual(info["DoiHinh"]["Slot1"], 1)
+
+    def test_runtime_discovered_routes_are_registered(self) -> None:
+        self.assertIn("getsystemhighlight", ROUTES)
+        self.assertIn("getminibossinfo", ROUTES)
+        self.assertIn("laynhanvat", ROUTES)
+
+    def test_system_highlight_stub_is_empty_success(self) -> None:
+        response = _system_highlight_response({"Aid": 1})
+        self.assertEqual(response["ErrorCode"], 1)
+        self.assertEqual(response["SystemHighLightList"], [])
+        self.assertEqual(response["SystemHighLight"], [])
+
+    def test_mini_boss_stub_is_empty_success(self) -> None:
+        response = _mini_boss_info_response({"Aid": 1})
+        self.assertEqual(response["ErrorCode"], 1)
+        self.assertIsNone(response["MiniBossInfo"])
+        self.assertEqual(response["DanhSachMiniBoss"], [])
+
+    def test_lay_nhan_vat_stub_returns_current_snapshot_without_spending(self) -> None:
+        _select_start_nhan_vat_response({"NhanVatCode": "NV_LenhHoXung"})
+        vang_before = STORE.account_payload()["Vang"]
+        response = _lay_nhan_vat_response({"Aid": 1})
+        self.assertEqual(response["ErrorCode"], 1)
+        self.assertEqual(response["NhanVat"][0]["Name"], "NV_LenhHoXung")
+        self.assertEqual(response["Account"]["Vang"], vang_before)
+        self.assertEqual(STORE.account_payload()["Vang"], vang_before)
 
     def test_first_giangho_win_unlocks_next_mission_and_serializes_json(self) -> None:
         _select_start_nhan_vat_response({"NhanVatCode": "NV_LenhHoXung"})
