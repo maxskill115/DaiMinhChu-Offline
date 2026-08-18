@@ -17,27 +17,30 @@ EXPECTED_METHOD_CODE_SIZE = 107
 # HTTP.WaitForGetUserInfo calls SohaSDKManager.SetUserInfo(...). The legacy
 # Java SohaSDK singleton is null in the offline environment, causing:
 # AndroidJavaException -> java.lang.NullPointerException -> setUserConfig(...)
-# Patch this telemetry/account-SDK bridge to a no-op so the game can continue.
 SOHA_SET_USER_INFO_RVA = 0xCB940
 SOHA_SET_USER_INFO_CODE_SIZE = 41
+
+# Preserve the original fat-method code size. The first instruction returns;
+# the remaining bytes are NOPs. This avoids changing method layout/alignment.
+SOHA_SET_USER_INFO_NOOP_IL = b"\x2a" + (b"\x00" * (SOHA_SET_USER_INFO_CODE_SIZE - 1))
 
 # LoginForm.OnLoginBtnClick -> HTTP.Instance.Login(
 #     new OnRequest(HTTP.Instance.WaitForLogin),
 #     accountInput.text,
 #     passInput.text)
 DIRECT_LOGIN_IL = bytes.fromhex(
-    "28 8d 11 00 06"      # call HTTP::get_Instance
-    "28 8d 11 00 06"      # call HTTP::get_Instance (delegate target)
-    "fe 06 e0 11 00 06"   # ldftn HTTP::WaitForLogin
-    "73 54 35 00 06"      # newobj OnRequest::.ctor
-    "02"                  # ldarg.0
-    "7b cf 13 00 04"      # ldfld LoginForm::accountInput
-    "6f 7a 34 00 06"      # callvirt UIInput::get_text
-    "02"                  # ldarg.0
-    "7b d0 13 00 04"      # ldfld LoginForm::passInput
-    "6f 7a 34 00 06"      # callvirt UIInput::get_text
-    "6f d3 11 00 06"      # callvirt HTTP::Login
-    "2a"                  # ret
+    "28 8d 11 00 06"
+    "28 8d 11 00 06"
+    "fe 06 e0 11 00 06"
+    "73 54 35 00 06"
+    "02"
+    "7b cf 13 00 04"
+    "6f 7a 34 00 06"
+    "02"
+    "7b d0 13 00 04"
+    "6f 7a 34 00 06"
+    "6f d3 11 00 06"
+    "2a"
 )
 
 
@@ -119,12 +122,12 @@ def patch_user_string(data: bytearray, us_index: int, value: str) -> None:
 
     old_len = data[entry]
     if old_len & 0x80:
-        raise ValueError("target string uses multi-byte compressed length; unsupported by targeted patcher")
+        raise ValueError("target string uses multi-byte compressed length; unsupported")
 
     payload = value.encode("utf-16le") + b"\x00"
     new_len = len(payload)
     if new_len >= 0x80:
-        raise ValueError("new URL is too long for the one-byte #US length used by this APK")
+        raise ValueError("new URL is too long for one-byte #US length")
     if new_len > old_len:
         raise ValueError(f"new URL is too long ({new_len} bytes > original slot {old_len} bytes)")
 
@@ -140,11 +143,11 @@ def patch_user_string(data: bytearray, us_index: int, value: str) -> None:
         data[entry + 1 + new_len : entry + 1 + old_len] = b"\x00" * (old_len - new_len)
 
 
-def _fat_method_layout(data: bytearray, rva: int, expected_code_size: int) -> tuple[int, int, int]:
+def _fat_method_layout(data: bytes | bytearray, rva: int, expected_code_size: int) -> tuple[int, int, int]:
     method_off = _rva_to_offset(data, rva)
     flags = _u16(data, method_off)
     if flags & 0x3 != 0x3:
-        raise ValueError(f"method at RVA 0x{rva:x} is not a fat IL method as expected")
+        raise ValueError(f"method at RVA 0x{rva:x} is not a fat IL method")
 
     header_dwords = (flags >> 12) & 0xF
     header_size = header_dwords * 4
@@ -157,7 +160,13 @@ def _fat_method_layout(data: bytearray, rva: int, expected_code_size: int) -> tu
     return method_off, header_size, code_size
 
 
-def _replace_fat_method_body(
+def _method_body(data: bytes | bytearray, rva: int, expected_code_size: int) -> bytes:
+    method_off, header_size, code_size = _fat_method_layout(data, rva, expected_code_size)
+    code_off = method_off + header_size
+    return bytes(data[code_off : code_off + code_size])
+
+
+def _replace_fat_method_body_resize(
     data: bytearray,
     rva: int,
     expected_code_size: int,
@@ -176,7 +185,7 @@ def _replace_fat_method_body(
 
 
 def patch_login_button(data: bytearray) -> None:
-    _replace_fat_method_body(
+    _replace_fat_method_body_resize(
         data,
         ON_LOGIN_BTN_RVA,
         EXPECTED_METHOD_CODE_SIZE,
@@ -185,14 +194,48 @@ def patch_login_button(data: bytearray) -> None:
 
 
 def patch_soha_set_user_info(data: bytearray) -> None:
-    # A single IL ret is sufficient: SetUserInfo returns void and is only a
-    # bridge into the legacy Soha Android SDK. Offline gameplay does not need it.
-    _replace_fat_method_body(
-        data,
-        SOHA_SET_USER_INFO_RVA,
-        SOHA_SET_USER_INFO_CODE_SIZE,
-        b"\x2a",
+    # IMPORTANT: keep CodeSize=41. Replace body only, with RET + NOP padding.
+    method_off, header_size, code_size = _fat_method_layout(
+        data, SOHA_SET_USER_INFO_RVA, SOHA_SET_USER_INFO_CODE_SIZE
     )
+    code_off = method_off + header_size
+    original = bytes(data[code_off : code_off + code_size])
+    if original == SOHA_SET_USER_INFO_NOOP_IL:
+        return
+
+    expected_original = bytes.fromhex(
+        "02 7b e4 23 00 04 72 2e cd 01 70 1a 8d 08 00 00 01 25 16 03 a2 "
+        "25 17 05 a2 25 18 0e 04 a2 25 19 0e 05 a2 6f 99 09 00 0a 2a"
+    )
+    if original != expected_original:
+        raise ValueError(
+            "unexpected original SohaSDKManager.SetUserInfo IL; refusing blind patch\n"
+            f"Actual: {original.hex(' ')}"
+        )
+
+    data[code_off : code_off + code_size] = SOHA_SET_USER_INFO_NOOP_IL
+
+
+def verify_patched_assembly(data: bytes | bytearray, base_url: str) -> None:
+    login_body = _method_body(data, ON_LOGIN_BTN_RVA, len(DIRECT_LOGIN_IL))
+    if login_body != DIRECT_LOGIN_IL:
+        raise ValueError("self-check failed: direct-login IL not present")
+
+    soha_body = _method_body(data, SOHA_SET_USER_INFO_RVA, SOHA_SET_USER_INFO_CODE_SIZE)
+    if soha_body != SOHA_SET_USER_INFO_NOOP_IL:
+        raise ValueError(
+            "self-check failed: Soha SetUserInfo no-op not present\n"
+            f"Actual: {soha_body.hex(' ')}"
+        )
+
+    us_off, us_size = _find_metadata_stream(data, "#US")
+    entry = us_off + LOGIN_URL_US_INDEX
+    if entry >= us_off + us_size:
+        raise ValueError("self-check failed: login URL #US entry out of range")
+    n = data[entry]
+    actual_url = bytes(data[entry + 1 : entry + 1 + n])[:-1].decode("utf-16le")
+    if actual_url != base_url:
+        raise ValueError(f"self-check failed: login URL mismatch: {actual_url!r}")
 
 
 def patch_assembly(assembly: bytes, base_url: str) -> bytes:
@@ -200,7 +243,14 @@ def patch_assembly(assembly: bytes, base_url: str) -> bytes:
     patch_user_string(data, LOGIN_URL_US_INDEX, base_url)
     patch_login_button(data)
     patch_soha_set_user_info(data)
+    verify_patched_assembly(data, base_url)
     return bytes(data)
+
+
+def verify_output_apk(path: Path, base_url: str) -> None:
+    with zipfile.ZipFile(path, "r") as zf:
+        assembly = zf.read(ASSEMBLY_PATH)
+    verify_patched_assembly(assembly, base_url)
 
 
 def patch_apk(input_apk: Path, output_apk: Path, base_url: str) -> None:
@@ -220,16 +270,21 @@ def patch_apk(input_apk: Path, output_apk: Path, base_url: str) -> None:
         with zipfile.ZipFile(output_apk, "w") as dst:
             for info in src.infolist():
                 upper_name = info.filename.upper()
-                if upper_name.startswith("META-INF/") and upper_name.endswith((".RSA", ".DSA", ".EC", ".SF", ".MF")):
-                    # Original APK signatures become invalid after Assembly-CSharp.dll changes.
+                if upper_name.startswith("META-INF/") and upper_name.endswith(
+                    (".RSA", ".DSA", ".EC", ".SF", ".MF")
+                ):
                     continue
                 content = patched_assembly if info.filename == ASSEMBLY_PATH else src.read(info.filename)
-                # Preserve archive metadata/compression where practical; signing is a separate step.
                 dst.writestr(info, content)
+
+    # Re-open the artifact from disk. Do not claim success unless bytes on disk verify.
+    verify_output_apk(output_apk, base_url)
 
     print(f"Patched APK written to: {output_apk}")
     print(f"Login base URL: {base_url}")
-    print("Patched legacy SohaSDKManager.SetUserInfo to no-op for offline runtime.")
+    print("Direct login patch: OK")
+    print("Soha SetUserInfo no-op: OK")
+    print(f"Patched Assembly-CSharp SHA256: {sha256_bytes(patched_assembly)}")
     print("IMPORTANT: the rebuilt APK must be zipaligned/signed before Android will install it.")
 
 
@@ -243,7 +298,6 @@ def main() -> None:
         help="HTTP base URL embedded into HTTP.loginURL; client appends /Login",
     )
     args = parser.parse_args()
-
     patch_apk(args.input_apk, args.output_apk, args.base_url.rstrip("/"))
 
 
