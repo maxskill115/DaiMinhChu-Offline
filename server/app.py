@@ -64,9 +64,73 @@ def _mini_boss_info_response(_: dict) -> dict:
 
 
 def _lay_nhan_vat_response(_: dict) -> dict:
+    """Runtime-compatible recruit response.
+
+    CONFIRMED RUNTIME 2026-08-18: the old snapshot-only stub reached
+    WaitForLayNhanVat but then NhanVatPopup called BigNhanVatAvatar.SetByName
+    with a code that was not present in the embedded NhanVat dictionary.
+
+    HTTPLayNhanVatRespone field casing is still being reverse-checked, so this
+    response intentionally carries the confirmed/candidate aliases used by the
+    client code path while always pointing at a known embedded starter code.
+    Extra JSON fields are ignored by LitJson DTO mapping.
+    """
+    code = "NV_PhongThanhDuong"
     heroes = STORE.all_heroes_payload()
-    return {"ErrorCode": 1, "ErrorMsg": "", "NhanVat": heroes, "Account": STORE.account_payload(),
-            "UpdateUserInfo": {"Account": STORE.account_payload(), "NhanVat": heroes}}
+    return {
+        "ErrorCode": 1,
+        "ErrorMsg": "",
+        "CodeName": code,
+        "code_name": code,
+        "NhanVatCode": code,
+        "nhanVatCode": code,
+        "TanHonCount": 0,
+        "tanHonCount": 0,
+        "tan_hon_count": 0,
+        "ListEventHon": [],
+        "listEventHon": [],
+        "GetIdx": 0,
+        "NhanVat": heroes,
+        "Account": STORE.account_payload(),
+        "UpdateUserInfo": {"Account": STORE.account_payload(), "NhanVat": heroes},
+    }
+
+
+def _empty_feature_response(_: dict) -> dict:
+    """Safe compatibility envelope for runtime-discovered legacy features.
+
+    These routes are CONFIRMED RUNTIME names but their full DTO/gameplay is not
+    reconstructed yet. Returning encrypted HTTP 200 removes FileNotFound/404 so
+    the next client-side schema requirement becomes visible in logcat.
+    """
+    return {
+        "ErrorCode": 1,
+        "ErrorMsg": "",
+        "List": [],
+        "Items": [],
+        "Data": [],
+        "Result": [],
+    }
+
+
+def _get_info_lien_minh_response(_: dict) -> dict:
+    return {
+        "ErrorCode": 1,
+        "ErrorMsg": "",
+        "LienMinh": None,
+        "InfoLienMinh": None,
+        "ThanhVien": [],
+        "DanhSachThanhVien": [],
+        "Account": STORE.account_payload(),
+    }
+
+
+def _chat_get_response(_: dict) -> dict:
+    return {"ErrorCode": 1, "ErrorMsg": "", "Chat": [], "Chats": [], "Messages": [], "ListChat": []}
+
+
+def _event_info_response(_: dict) -> dict:
+    return {"ErrorCode": 1, "ErrorMsg": "", "Info": None, "List": [], "Items": [], "Top": [], "Reward": []}
 
 
 def _giang_ho_response(request: dict) -> dict:
@@ -91,13 +155,32 @@ def _giang_ho_response(request: dict) -> dict:
         "ErrorCode": 1, "ErrorMsg": ""}
 
 
-ROUTES = {"login": _login_response, "checkuser": _check_user_response, "getuserinfo": _get_user_info_response,
-          "selectstartnhanvat": _select_start_nhan_vat_response, "getsystemhighlight": _system_highlight_response,
-          "getminibossinfo": _mini_boss_info_response, "laynhanvat": _lay_nhan_vat_response, "giangho": _giang_ho_response}
+ROUTES = {
+    "login": _login_response,
+    "checkuser": _check_user_response,
+    "getuserinfo": _get_user_info_response,
+    "selectstartnhanvat": _select_start_nhan_vat_response,
+    "getsystemhighlight": _system_highlight_response,
+    "getminibossinfo": _mini_boss_info_response,
+    "laynhanvat": _lay_nhan_vat_response,
+    "giangho": _giang_ho_response,
+
+    # CONFIRMED RUNTIME from full-menu click sweep on 2026-08-18.
+    "getinfolienminh": _get_info_lien_minh_response,
+    "createlienminh": _empty_feature_response,
+    "chatget": _chat_get_response,
+    "getanhhungbang": _event_info_response,
+    "getdongnhaninfo": _event_info_response,
+    "gethuyetchieninfo": _event_info_response,
+    "getnienthuinfo": _event_info_response,
+    "getvantieuinfo": _event_info_response,
+    "ngunhacgetinfo": _event_info_response,
+    "gettongkiminfo": _event_info_response,
+}
 
 
 class DMCHandler(BaseHTTPRequestHandler):
-    server_version = "DMCOffline/0.6"
+    server_version = "DMCOffline/0.7"
     def log_message(self, fmt: str, *args: object) -> None: log.info("%s - %s", self.client_address[0], fmt % args)
     def _gm_allowed(self) -> bool: return self.client_address[0] in {"127.0.0.1", "::1"}
 
@@ -149,6 +232,7 @@ def main() -> None:
     log.info("Starting Dai Minh Chu local compatibility server")
     log.info("Listen: http://%s:%s", HOST, PORT); log.info("GM Tool: http://127.0.0.1:%s/gm", PORT)
     log.info("Advertised User.asmx: %s", PUBLIC_USER_URL); log.info("Derived Battle.asmx: %s", PUBLIC_BATTLE_URL); log.info("Save file: %s", STORE.path)
+    log.info("Registered game routes: %s", ", ".join(sorted(ROUTES)))
     ThreadingHTTPServer((HOST, PORT), DMCHandler).serve_forever()
 
 
