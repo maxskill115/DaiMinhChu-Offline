@@ -6,8 +6,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-# CONFIRMED from embedded ConfigFile/GiangHo in the target APK.
-# Only structural mission counts are kept here; no original dialogue/config dump.
 CHAPTER_MISSION_COUNTS = [
     6, 7, 9, 10, 10, 12, 12, 13, 14, 15, 15, 15, 16, 16, 16, 16, 16,
     16, 16, 16, 14, 16, 16, 15, 16, 17, 16, 15, 16, 16, 13, 15, 15, 15,
@@ -23,22 +21,30 @@ START_HEROES = {
     "NV_SoLuuHuong": {"Mau": 250, "Cong": 150, "Thu": 160, "Noicong": 305},
 }
 
+GM_GROUP_DEFAULTS: dict[str, Any] = {
+    "TrangBi": [], "VoCong": [], "Orb": [], "VatPhamTieuThu": [],
+    "TanChuong": [], "HonNhanVat": [], "Mail": [], "Banbe": [],
+    "DanhHieu": [], "DanhSon": [], "ServerInfo": {}, "LienMinh": [],
+    "KimCham": [], "MoiRuou": [], "LongChau": [], "AmKhi": [],
+}
+
 
 def _default_state() -> dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "hero_code": None,
         "hero_level": 1,
         "hero_exp": 0,
+        "extra_heroes": [],
         "account": {
-            "DisplayName": "Offline",
-            "Level": 1,
-            "Exp": 0,
-            "ExpMax": 100,
-            "Bac": 10000,
-            "Vang": 100,
-            "Vip": 0,
+            "DisplayName": "Offline", "Level": 1, "Exp": 0, "ExpMax": 100,
+            "Bac": 10000, "Vang": 100, "Vip": 0,
         },
+        "time_values": {
+            "LuotNV": 20, "LuotNVMax": 20, "LuotTD": 10,
+            "LuotTDMax": 10, "LatTheBai": 0,
+        },
+        "groups": deepcopy(GM_GROUP_DEFAULTS),
         "giangho": [],
     }
 
@@ -51,31 +57,30 @@ class SaveStore:
 
     def load(self) -> None:
         if not self.path.exists():
-            self.data = _default_state()
-            return
+            self.data = _default_state(); return
         raw = json.loads(self.path.read_text(encoding="utf-8"))
         base = _default_state()
         if isinstance(raw, dict):
             base.update(raw)
-            if isinstance(raw.get("account"), dict):
-                account = _default_state()["account"]
-                account.update(raw["account"])
-                base["account"] = account
+            for key in ("account", "time_values", "groups"):
+                if isinstance(raw.get(key), dict):
+                    merged = deepcopy(_default_state()[key]); merged.update(raw[key]); base[key] = merged
         self.data = base
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(
-            json.dumps(self.data, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         tmp.replace(self.path)
 
     def reset(self) -> None:
         self.data = _default_state()
-        if self.path.exists():
-            self.path.unlink()
+        if self.path.exists(): self.path.unlink()
+
+    def gm_reset(self, display_name: str = "Offline") -> None:
+        self.data = _default_state()
+        self.data["account"]["DisplayName"] = display_name or "Offline"
+        self.save()
 
     @property
     def hero_code(self) -> str | None:
@@ -83,132 +88,113 @@ class SaveStore:
         return str(value) if value else None
 
     def choose_hero(self, code: str) -> None:
-        if code not in START_HEROES:
-            raise ValueError(f"Unsupported start character: {code}")
-        self.data["hero_code"] = code
-        self.data["hero_level"] = 1
-        self.data["hero_exp"] = 0
-        self.save()
+        if code not in START_HEROES: raise ValueError(f"Unsupported start character: {code}")
+        self.data["hero_code"] = code; self.data["hero_level"] = 1; self.data["hero_exp"] = 0; self.save()
 
     def hero_payload(self) -> dict[str, Any] | None:
         code = self.hero_code
-        if not code:
-            return None
+        if not code: return None
         stats = START_HEROES[code]
-        return {
-            "Id": 1,
-            "Name": code,
-            "Level": int(self.data.get("hero_level", 1)),
-            "Exp": int(self.data.get("hero_exp", 0)),
-            "ExpMax": 100,
-            "Mau": stats["Mau"],
-            "Cong": stats["Cong"],
-            "Thu": stats["Thu"],
-            "Noicong": stats["Noicong"],
-            "VoCong1Level": 1,
-            "KyNgoCocLevel": 1,
-        }
+        return {"Id": 1, "Name": code, "Level": int(self.data.get("hero_level", 1)),
+                "Exp": int(self.data.get("hero_exp", 0)), "ExpMax": 100,
+                "Mau": stats["Mau"], "Cong": stats["Cong"], "Thu": stats["Thu"],
+                "Noicong": stats["Noicong"], "VoCong1Level": 1, "KyNgoCocLevel": 1}
 
-    def account_payload(self) -> dict[str, Any]:
-        return deepcopy(self.data["account"])
+    def all_heroes_payload(self) -> list[dict[str, Any]]:
+        result = []
+        hero = self.hero_payload()
+        if hero: result.append(hero)
+        result.extend(deepcopy(self.data.get("extra_heroes", [])))
+        return result
 
-    def add_bac(self, value: int) -> None:
-        self.data["account"]["Bac"] = int(self.data["account"].get("Bac", 0)) + int(value)
+    def account_payload(self) -> dict[str, Any]: return deepcopy(self.data["account"])
+    def add_bac(self, value: int) -> None: self.data["account"]["Bac"] = int(self.data["account"].get("Bac", 0)) + int(value)
+
+    def gm_update_account(self, values: dict[str, Any]) -> None:
+        allowed = {"DisplayName", "Level", "Exp", "ExpMax", "Bac", "Vang", "Vip"}
+        for key, value in values.items():
+            if key not in allowed: continue
+            self.data["account"][key] = str(value) if key == "DisplayName" else int(value)
+        self.save()
+
+    def gm_update_time(self, values: dict[str, Any]) -> None:
+        for key in self.data["time_values"]:
+            if key in values: self.data["time_values"][key] = int(values[key])
+        self.save()
+
+    def gm_set_main_hero(self, code: str, level: int = 1, exp: int = 0) -> None:
+        if code not in START_HEROES: raise ValueError("Starter code must be one of the three confirmed starter heroes")
+        self.data["hero_code"] = code; self.data["hero_level"] = int(level); self.data["hero_exp"] = int(exp); self.save()
+
+    def gm_add_hero(self, record: dict[str, Any]) -> dict[str, Any]:
+        item = deepcopy(record)
+        item.setdefault("Id", 2 + len(self.data["extra_heroes"])); item.setdefault("Level", 1); item.setdefault("Exp", 0)
+        if not item.get("Name"): raise ValueError("Hero record requires Name/code")
+        self.data["extra_heroes"].append(item); self.save(); return item
+
+    def gm_set_group(self, name: str, value: Any) -> None:
+        if name not in GM_GROUP_DEFAULTS: raise ValueError(f"Unknown user-info group: {name}")
+        self.data["groups"][name] = deepcopy(value); self.save()
+
+    def gm_add_group_item(self, name: str, item: dict[str, Any]) -> dict[str, Any]:
+        if name not in GM_GROUP_DEFAULTS: raise ValueError(f"Unknown group: {name}")
+        group = self.data["groups"].setdefault(name, [])
+        if not isinstance(group, list): raise ValueError(f"Group {name} is not a list")
+        row = deepcopy(item); row.setdefault("Id", len(group) + 1); group.append(row); self.save(); return row
+
+    def gm_snapshot(self) -> dict[str, Any]:
+        return {"save_file": str(self.path), "account": self.account_payload(), "time_values": deepcopy(self.data["time_values"]),
+                "main_hero": self.hero_payload(), "heroes": self.all_heroes_payload(), "groups": deepcopy(self.data["groups"]),
+                "giangho": self.giangho_payload(), "raw": deepcopy(self.data)}
+
+    def gm_replace_raw(self, value: dict[str, Any]) -> None:
+        if not isinstance(value, dict): raise ValueError("Raw save must be an object")
+        self.data = value; self.load_from_data_defaults(); self.save()
+
+    def load_from_data_defaults(self) -> None:
+        raw = deepcopy(self.data); base = _default_state(); base.update(raw)
+        for key in ("account", "time_values", "groups"):
+            if isinstance(raw.get(key), dict):
+                merged = deepcopy(_default_state()[key]); merged.update(raw[key]); base[key] = merged
+        self.data = base
 
     def _chapter(self, chapter_idx: int, create: bool = False) -> dict[str, Any] | None:
         chapters = self.data["giangho"]
         for chapter in chapters:
-            if int(chapter.get("GiangHoIndx", -1)) == chapter_idx:
-                return chapter
-
-        if not create:
-            return None
-
-        # Client unlock semantics are contiguous. A new chapter is legal only
-        # when it is chapter 0 or the previous chapter is complete.
-        if chapter_idx == 0:
-            pass
-        else:
+            if int(chapter.get("GiangHoIndx", -1)) == chapter_idx: return chapter
+        if not create: return None
+        if chapter_idx != 0:
             prev = self._chapter(chapter_idx - 1, create=False)
-            if not prev or int(prev.get("HoanThanh", 0)) <= 0:
-                raise ValueError(f"GiangHo chapter {chapter_idx} is locked")
-
-        chapter = {
-            "GiangHoIndx": chapter_idx,
-            "HoanThanh": 0,
-            # Runtime representation; converted to legacy JSON string in payload.
-            "missions": [{"S": 0, "T": 0}],
-        }
-        chapters.append(chapter)
-        chapters.sort(key=lambda item: int(item.get("GiangHoIndx", 0)))
-        return chapter
+            if not prev or int(prev.get("HoanThanh", 0)) <= 0: raise ValueError(f"GiangHo chapter {chapter_idx} is locked")
+        chapter = {"GiangHoIndx": chapter_idx, "HoanThanh": 0, "missions": [{"S": 0, "T": 0}]}
+        chapters.append(chapter); chapters.sort(key=lambda item: int(item.get("GiangHoIndx", 0))); return chapter
 
     def complete_giangho_battle(self, chapter_idx: int, mission_idx: int, star: int) -> None:
-        if not 0 <= chapter_idx < len(CHAPTER_MISSION_COUNTS):
-            raise ValueError(f"Invalid GiangHo chapter: {chapter_idx}")
+        if not 0 <= chapter_idx < len(CHAPTER_MISSION_COUNTS): raise ValueError(f"Invalid GiangHo chapter: {chapter_idx}")
         mission_count = CHAPTER_MISSION_COUNTS[chapter_idx]
-        if not 0 <= mission_idx < mission_count:
-            raise ValueError(f"Invalid mission {mission_idx} for chapter {chapter_idx}")
-        if not 0 <= star <= 3:
-            raise ValueError(f"Invalid star value: {star}")
-
-        chapter = self._chapter(chapter_idx, create=True)
-        assert chapter is not None
+        if not 0 <= mission_idx < mission_count: raise ValueError(f"Invalid mission {mission_idx} for chapter {chapter_idx}")
+        if not 0 <= star <= 3: raise ValueError(f"Invalid star value: {star}")
+        chapter = self._chapter(chapter_idx, create=True); assert chapter is not None
         missions = chapter.setdefault("missions", [{"S": 0, "T": 0}])
-
-        # The client uses the serialized record-list length as its mission
-        # unlock boundary, so only an already-visible mission is legal here.
-        if mission_idx >= len(missions):
-            raise ValueError(f"Mission {chapter_idx}:{mission_idx} is locked")
-
-        record = missions[mission_idx]
-        record["S"] = max(int(record.get("S", 0)), star)
-        record["T"] = int(record.get("T", 0)) + 1
-
+        if mission_idx >= len(missions): raise ValueError(f"Mission {chapter_idx}:{mission_idx} is locked")
+        record = missions[mission_idx]; record["S"] = max(int(record.get("S", 0)), star); record["T"] = int(record.get("T", 0)) + 1
         if star > 0:
-            if mission_idx == mission_count - 1:
-                chapter["HoanThanh"] = 1
-            elif len(missions) == mission_idx + 1:
-                missions.append({"S": 0, "T": 0})
-
+            if mission_idx == mission_count - 1: chapter["HoanThanh"] = 1
+            elif len(missions) == mission_idx + 1: missions.append({"S": 0, "T": 0})
         self.save()
 
     def giangho_payload(self) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for chapter in sorted(
-            self.data.get("giangho", []),
-            key=lambda item: int(item.get("GiangHoIndx", 0)),
-        ):
+        result = []
+        for chapter in sorted(self.data.get("giangho", []), key=lambda item: int(item.get("GiangHoIndx", 0))):
             missions = chapter.get("missions") or [{"S": 0, "T": 0}]
-            result.append(
-                {
-                    "GiangHoIndx": int(chapter.get("GiangHoIndx", 0)),
-                    "HoanThanh": int(chapter.get("HoanThanh", 0)),
-                    # CONFIRMED: HTTPUserInfo.GetNhiemVuGiangHo calls
-                    # JsonMapper.ToObject<List<HTTPNhiemVuGiangHoRecord>>(Nhiemvu).
-                    "Nhiemvu": json.dumps(
-                        missions, ensure_ascii=False, separators=(",", ":")
-                    ),
-                }
-            )
+            result.append({"GiangHoIndx": int(chapter.get("GiangHoIndx", 0)), "HoanThanh": int(chapter.get("HoanThanh", 0)),
+                           "Nhiemvu": json.dumps(missions, ensure_ascii=False, separators=(",", ":"))})
         return result
 
     def user_info_payload(self) -> dict[str, Any]:
-        hero = self.hero_payload()
-        payload: dict[str, Any] = {
-            "ErrorCode": 1,
-            "ErrorMsg": "",
-            "Account": self.account_payload(),
-            "GiaTriThoiGian": {
-                "LuotNV": 20,
-                "LuotNVMax": 20,
-                "LuotTD": 10,
-                "LuotTDMax": 10,
-                "LatTheBai": 0,
-            },
-            "NhanVat": [hero] if hero else [],
-            "GiangHo": self.giangho_payload(),
-        }
-        if hero:
-            payload["DoiHinh"] = {"Slot1": 1}
+        heroes = self.all_heroes_payload()
+        payload: dict[str, Any] = {"ErrorCode": 1, "ErrorMsg": "", "Account": self.account_payload(),
+            "GiaTriThoiGian": deepcopy(self.data["time_values"]), "NhanVat": heroes, "GiangHo": self.giangho_payload()}
+        payload.update(deepcopy(self.data["groups"]))
+        if heroes: payload["DoiHinh"] = {"Slot1": 1}
         return payload
