@@ -57,13 +57,22 @@ class EndpointAuditTests(unittest.TestCase):
             self.assertIn(key, mini)
 
     def test_known_runtime_read_routes_have_specific_handlers(self) -> None:
+        lowercase_success = {
+            "getsystemhighlight", "getvantieuinfo", "ngunhacgetinfo", "getinfolienminh", "chatget",
+        }
+        no_error_code = {"gettongkiminfo"}
         for name in ("getsystemhighlight", "getminibossinfo", "getanhhungbang", "getdongnhaninfo",
                      "gethuyetchieninfo", "getnienthuinfo", "getvantieuinfo", "ngunhacgetinfo",
                      "gettongkiminfo", "getinfolienminh", "chatget"):
             self.assertIn(name, ROUTES)
             response = ROUTES[name]({"Aid": 1})
-            code = response.get("ErrorCode", response.get("errorCode", 1))
-            self.assertEqual(code, 1, name)
+            if name in lowercase_success:
+                self.assertEqual(response.get("errorCode"), 0, name)
+            elif name in no_error_code:
+                self.assertNotIn("ErrorCode", response, name)
+                self.assertNotIn("errorCode", response, name)
+            else:
+                self.assertEqual(response.get("ErrorCode"), 1, name)
 
 
 if __name__ == "__main__":
