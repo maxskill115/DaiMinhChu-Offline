@@ -40,99 +40,68 @@ docs/protocol/runtime-dto-audit.md
 
 Các DTO chính đã đối soát static: `GetSystemHighLight`, `LayNhanVat`, `DanhNhanhGiangHo`, `GetInfoLienMinh`, `ChatGet`, `GetAnhHungBang`, `GetDongNhanInfo`, `GetHuyetChienInfo`, `GetNienThuInfo`, `GetVanTieuInfo`, `NguNhacGetInfo`, `GetTongKimInfo`, `GetInfoBangChien`, `FindLienMinh`, `GetThanhVienLienMinh`, `RefreshDiemLuanKiem` và một số nested DTO.
 
-## 5. Mốc server 0.10 trước runtime sweep mới
-User đã chạy:
+## 5. Server 0.11 — GET transport + lowercase error semantics
+Runtime sweep 14:01 phát hiện:
 
-```text
-Ran 29 tests in 0.091s
-OK
-```
+- `ChatGet` được legacy client gọi bằng HTTP GET nên server 0.10 vẫn 404 dù route đã đăng ký.
+- DTO family dùng `errorCode` chữ thường có convention `0 = success`, ngược với uppercase `ErrorCode` dùng `1 = success`.
+- generic fallback 0.10 trả `errorCode=0`, vô tình thành success với lower-case family.
 
-`/health` xác nhận:
+Server 0.11 đã sửa:
 
-```text
-server_version = DMCOffline/0.10
-static_endpoint_count = 277
-exact_route_count = 26
-has_character = true
-```
+1. `do_GET()` route toàn bộ static endpoint inventory.
+2. GET có `data=` thì decrypt; GET rỗng gọi handler với `{}`.
+3. Lowercase success DTO dùng `errorCode=0`.
+4. Lowercase controlled failure dùng `errorCode=1`.
+5. Generic unsupported dùng `ErrorCode=0` + `errorCode=1` để fail đúng ở cả hai convention.
+6. Server version: `DMCOffline/0.11`.
 
-## 6. Runtime sweep 14:01 — phát hiện 2 lỗi nền tảng mới
-User test nhiều menu trên server 0.10 và gửi logcat + ảnh.
-
-### 6.1 ChatGet vẫn 404 dù route đã đăng ký
-Logcat **CONFIRMED RUNTIME**:
-
-```text
-java.io.FileNotFoundException:
-http://192.168.1.14:8000/Server/Webservice/User.asmx/ChatGet
-```
-
-Xuất hiện khi mở `LuyenCongForm`.
-
-Nguyên nhân server-side: `DMCHandler.do_GET()` chỉ phục vụ `/health` và `/gm`, trong khi legacy client gọi `ChatGet` bằng **HTTP GET**, không phải POST encrypted form. Vì vậy route có trong `ROUTES` nhưng vẫn bị 404.
-
-### 6.2 Lower-case `errorCode` dùng convention ngược uppercase `ErrorCode`
-Runtime cũ của `LayNhanVat` rất quan trọng: khi DTO lower-case `errorCode` không được map (default enum = 0), client đã đi vào success callback rồi crash ở `BigNhanVatAvatar.SetByName` do `errorMsg/code_name` rỗng.
-
-Server 0.10 lại trả:
-
-```text
-errorCode = 1
-errorMsg = valid NV_ code
-```
-
-Kết quả runtime mới: **Mở tướng không còn crash nhưng bấm Thu nhận không hiện kết quả gì**. Đây là bằng chứng mạnh rằng lower-case family dùng:
-
-```text
-errorCode = 0  => success
-errorCode != 0 => error
-```
-
-trong khi uppercase family đã confirmed:
-
-```text
-ErrorCode = 1 => success
-ErrorCode = 0 => error
-```
-
-### 6.3 Generic fallback 0.10 cũng có bug
-0.10 trả đồng thời:
-
-```text
-ErrorCode = 0
-errorCode = 0
-```
-
-cho endpoint chưa reverse. Điều này là failure với uppercase convention nhưng **success với lower-case convention**, có thể vẫn đẩy client vào success callback thiếu DTO.
-
-## 7. Server 0.11 — FIXED, RUNTIME RETEST PENDING
-Commits:
+Commits chính:
 
 ```text
 f498f51f  Fix GET transport and lowercase error semantics
 4491654a  Test GET transport and lowercase error semantics
 ```
 
-Các fix:
-
-1. `do_GET()` giờ route cả 277 endpoint client, không chỉ `/health`/`/gm`.
-2. GET route có `data=` thì decrypt như POST; GET không body/query vẫn gọi handler với `{}`.
-3. `ChatGet` GET sẽ trả AES encrypted response thay vì 404.
-4. Lower-case success DTO đổi sang `errorCode=0` cho `LayNhanVat`, `ChatGet`, `GetSystemHighLight`, `GetInfoLienMinh`, `GetVanTieuInfo`, `NguNhacGetInfo`, `FindLienMinh`, `GetThanhVienLienMinh` và nested reward lower-case.
-5. `CreateLienMinh` controlled failure đổi thành `errorCode=1`.
-6. Generic static unsupported trả:
+## 6. Unit-test regression sau khi user pull 0.11 — đã sửa trên repo
+User chạy `python -m unittest -v` và có **5 failures**, nhưng cả 5 đều là **test cũ còn kỳ vọng convention 0.10**, không phải app handler hỏng:
 
 ```text
-ErrorCode = 0
-errorCode = 1
+test_known_runtime_read_routes_have_specific_handlers
+test_create_lien_minh_is_controlled_failure_not_fake_success
+test_known_read_routes_return_success
+test_lay_nhan_vat_exact_response_fields_and_adds_hero
+test_system_highlight_exact_dto_shape
 ```
 
-=> failure ở cả hai error-code conventions.
-7. Server version nâng lên `DMCOffline/0.11`.
-8. Test mới `server/test_runtime_transport.py` kiểm lower-case semantics + GET `/ChatGet` trả HTTP 200 encrypted.
+Trong cùng run, regression test mới đã pass:
 
-## 8. Runtime lỗi còn lại từ log 14:01
+```text
+test_chat_get_legacy_http_get_returns_encrypted_success ... ok
+test_generic_static_fallback_fails_both_error_conventions ... ok
+test_lowercase_error_code_zero_is_success_for_recruit ... ok
+test_lowercase_read_success_and_controlled_failure ... ok
+```
+
+=> implementation 0.11 phù hợp với convention mới; test suite cũ cần đồng bộ.
+
+Đã sửa:
+
+```text
+a579d845  Sửa test audit theo quy ước errorCode lowercase
+7ee622b4  Đồng bộ test server với errorCode lowercase
+```
+
+Các expectation mới:
+
+- lowercase read/recruit success => `errorCode == 0`;
+- `CreateLienMinh` controlled failure => `errorCode == 1`;
+- uppercase read success => `ErrorCode == 1`;
+- `GetTongKimInfo` không có error-code field.
+
+User cần pull lại và chạy test lần nữa; mục tiêu là toàn bộ 33 tests `OK`.
+
+## 7. Runtime lỗi còn lại từ log 14:01
 ### Kỳ Ngộ
 Vẫn **CONFIRMED RUNTIME**:
 
@@ -144,59 +113,60 @@ KyNgoForm.CreateUI
 KyNgoForm.SyncWithNetworkData
 ```
 
-Đây là data/DTO issue riêng, không phải endpoint-name.
+### Luyện Công
+Logcat cũ có `/ChatGet` 404; 0.11 đã fix transport nhưng runtime retest pending.
+Ngoài ra có 2 lần client hiển thị `Offline backend: endpoint recognised but DTO/gameplay is not reconstructed yet`; cần console server để lấy exact endpoint names.
 
-### Unsupported endpoints
-Trong `LuyenCongForm` có 2 lần client hiển thị:
-
-```text
-Offline backend: endpoint recognised but DTO/gameplay is not reconstructed yet
-```
-
-Tên endpoint cụ thể cần lấy từ console server `STATIC-KNOWN UNSUPPORTED ...`; logcat chỉ có message, không có URL.
+### Mở tướng
+0.10: không crash nhưng bấm Thu nhận không hiện gì. 0.11 đổi `LayNhanVat.errorCode` thành 0 success; runtime retest pending.
 
 ### Cửa hàng / Lễ bao
-Ảnh runtime cho thấy popup `Mua lễ bao thành công` nhưng danh sách phần thưởng trống. Handler `BuyLeBao` hiện vẫn dùng generic `GetUserInfo` response, nên feature này **chưa đúng DTO/semantics** dù không crash.
+Ảnh runtime cho thấy popup `Mua lễ bao thành công` nhưng reward trống. `BuyLeBao` vẫn chưa reverse exact DTO/semantics.
 
-## 9. Giang Hồ — PARTIAL
-Minimal BattleReplay chạy runtime nhưng nội dung chưa phải game gốc. Đã persist Bạc + account EXP + hero EXP. NPC fixture thay đổi theo ải nhưng roster/item/combat script/reward gốc chưa map từ config.
+## 8. Giang Hồ — PARTIAL
+Minimal BattleReplay chạy runtime nhưng chưa phải nội dung gốc. Đã persist Bạc + account EXP + hero EXP. NPC fixture thay đổi theo ải, nhưng roster/item/combat script/reward gốc chưa map từ config.
 
-Exact endpoint:
+Exact endpoints:
 
 ```text
 /DanhNhanhGiangHo
 /ResetTurnNhiemVuGH
 ```
 
-`DanhNhanhGiangHo` đã có exact root DTO static; runtime retest vẫn pending.
+`DanhNhanhGiangHo` đã có exact root DTO static; runtime retest pending.
 
-## 10. Việc cần làm NGAY
-User cần pull server 0.11, chạy tests, restart server; **không cần rebuild APK**.
+## 9. Việc user cần làm tiếp
 
 ```bat
 cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
 git pull
 cd server
 python -m unittest -v
+```
+
+Nếu toàn bộ 33 tests `OK`:
+
+```bat
 set DMC_BASE_URL=http://192.168.1.14:8000
 python app.py
 ```
 
 `/health` phải báo `DMCOffline/0.11`.
 
-Runtime retest ưu tiên:
+Sau đó runtime retest:
 
-1. Mở tướng — bấm Thu nhận; kỳ vọng popup/tướng xuất hiện vì `errorCode=0`.
+1. Mở tướng / Thu nhận.
 2. Luyện Công — xác nhận `ChatGet` không còn FileNotFound.
-3. Gửi console server quanh các dòng `STATIC-KNOWN UNSUPPORTED` để biết chính xác 2 endpoint còn thiếu DTO trong Luyện Công.
-4. Test BuyLeBao; phần thưởng hiện vẫn pending exact DTO.
-5. Sau đó Giang Hồ / Đánh nhanh 10 lần và Kỳ Ngộ.
+3. Lấy console server `STATIC-KNOWN UNSUPPORTED` để xác định exact endpoint còn thiếu DTO.
+4. Giang Hồ + Đánh nhanh 10 lần.
+5. BuyLeBao.
+6. Kỳ Ngộ.
 
-## 11. APK workspace / GM
+## 10. APK workspace / GM
 - `tools/apk_workspace.py`: unpack/scan/repack raw APK; Unity serialized assets vẫn cần AssetRipper/UABE/UnityPy cho texture/audio/animation/effect/prefab.
 - GM: `http://127.0.0.1:8000/gm`.
 
-## 12. Quy tắc dự án
+## 11. Quy tắc dự án
 - Phân biệt `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
 - Không commit APK/full asset dump/keystore/credential.
 - Không gọi stub là feature hoàn chỉnh.
