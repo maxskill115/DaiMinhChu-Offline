@@ -77,14 +77,22 @@ class FixtureTests(unittest.TestCase):
         self.assertTrue(expected.issubset(ROUTES))
 
     def test_known_read_routes_return_success(self) -> None:
+        # These DTOs explicitly expose ErrorCode/errorCode in the client metadata.
         for name in (
             "getsystemhighlight", "getminibossinfo", "chatget", "getanhhungbang",
             "getdongnhaninfo", "gethuyetchieninfo", "getnienthuinfo", "getvantieuinfo",
-            "ngunhacgetinfo", "gettongkiminfo", "refreshdiemluankiem",
-            "getinfobangchien", "findlienminh", "getthanhvienlienminh",
+            "ngunhacgetinfo", "refreshdiemluankiem", "getinfobangchien",
+            "findlienminh", "getthanhvienlienminh",
         ):
             response = ROUTES[name]({"Aid": 1})
             self.assertEqual(response.get("ErrorCode", response.get("errorCode")), 1, name)
+
+    def test_get_tong_kim_info_exact_dto_has_no_error_code(self) -> None:
+        # HTTPGetTongKimResponse is unusual: static metadata confirms only these
+        # two public fields. Do not invent ErrorCode/ErrorMsg just to fit a
+        # generic success-envelope test.
+        response = ROUTES["gettongkiminfo"]({"Aid": 1})
+        self.assertEqual(response, {"huongDan": "", "listBoss": []})
 
     def test_create_lien_minh_is_controlled_failure_not_fake_success(self) -> None:
         response = ROUTES["createlienminh"]({"Aid": 1})
