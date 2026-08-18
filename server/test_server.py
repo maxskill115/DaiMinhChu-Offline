@@ -66,8 +66,32 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(info["DoiHinh"]["Slot1"], 1)
 
     def test_runtime_discovered_routes_are_registered(self) -> None:
-        for name in ("getsystemhighlight", "getminibossinfo", "laynhanvat"):
-            self.assertIn(name, ROUTES)
+        expected = {
+            "getsystemhighlight",
+            "getminibossinfo",
+            "laynhanvat",
+            "getinfolienminh",
+            "createlienminh",
+            "chatget",
+            "getanhhungbang",
+            "getdongnhaninfo",
+            "gethuyetchieninfo",
+            "getnienthuinfo",
+            "getvantieuinfo",
+            "ngunhacgetinfo",
+            "gettongkiminfo",
+        }
+        self.assertTrue(expected.issubset(ROUTES))
+
+    def test_runtime_menu_stubs_are_http_success_envelopes(self) -> None:
+        for name in (
+            "getinfolienminh", "createlienminh", "chatget", "getanhhungbang",
+            "getdongnhaninfo", "gethuyetchieninfo", "getnienthuinfo",
+            "getvantieuinfo", "ngunhacgetinfo", "gettongkiminfo",
+        ):
+            response = ROUTES[name]({"Aid": 1})
+            self.assertEqual(response["ErrorCode"], 1, name)
+            self.assertIn("ErrorMsg", response, name)
 
     def test_system_highlight_stub_is_empty_success(self) -> None:
         response = _system_highlight_response({"Aid": 1})
@@ -79,11 +103,15 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(response["ErrorCode"], 1)
         self.assertIsNone(response["MiniBossInfo"])
 
-    def test_lay_nhan_vat_stub_returns_current_snapshot_without_spending(self) -> None:
+    def test_lay_nhan_vat_response_contains_known_embedded_code(self) -> None:
         _select_start_nhan_vat_response({"NhanVatCode": "NV_LenhHoXung"})
         before = STORE.account_payload()["Vang"]
         response = _lay_nhan_vat_response({"Aid": 1})
-        self.assertEqual(response["NhanVat"][0]["Name"], "NV_LenhHoXung")
+        self.assertEqual(response["ErrorCode"], 1)
+        self.assertIn(response["CodeName"], START_HEROES)
+        self.assertEqual(response["NhanVatCode"], response["CodeName"])
+        self.assertIsInstance(response["ListEventHon"], list)
+        self.assertEqual(response["GetIdx"], 0)
         self.assertEqual(STORE.account_payload()["Vang"], before)
 
     def test_gm_updates_account_time_and_group(self) -> None:
