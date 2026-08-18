@@ -71,7 +71,7 @@ original IL = 02 7b e4 23 00 04 72 2e cd 01 70 1a 8d 08 00 00 01 25 16 03 a2 25 
 patched IL = 2a + 40 x 00
 ```
 
-Patcher hiện tự verify in-memory và on-disk; verifier riêng: `tools/verify_client.py`.
+Patcher tự verify in-memory và on-disk; verifier riêng: `tools/verify_client.py`.
 
 ## 5. Core config — CONFIRMED STATIC
 
@@ -187,60 +187,91 @@ c30790a1  Update verifier for padded SetUserInfo no-op
 dc65546b  Cập nhật HANDOFF
 ```
 
-User đã pull tới `dc65546` và build mới từ APK gốc:
+Unsigned v2:
 
 ```text
 DMC_local_v2_unsigned.apk
-```
-
-Patcher output thực tế:
-
-```text
 Direct login patch: OK
 Soha SetUserInfo no-op: OK
-Patched Assembly-CSharp SHA256: bd5f89c6db69ba852fb46789e5d2dd193b46a51a6f64c1b94efdb16e75e61b66
+SetUserInfo CodeSize: 41
+SetUserInfo IL: 2a 00 00 ... 00
 ```
 
-Verifier trên chính unsigned APK:
+Patched Assembly-CSharp SHA256:
+
+```text
+bd5f89c6db69ba852fb46789e5d2dd193b46a51a6f64c1b94efdb16e75e61b66
+```
+
+## 15. SIGNED V2 — CONFIRMED ARTIFACT
+
+`apksigner.bat` wrapper trên máy user không tạo output nhưng cũng không in lỗi. Chạy trực tiếp jar hoạt động:
+
+```bat
+java -jar "%LOCALAPPDATA%\Android\Sdk\build-tools\35.0.0\lib\apksigner.jar" sign --verbose --ks dmc-test.jks --ks-key-alias dmc --out DMC_local_v2_signed.apk DMC_local_v2_aligned.apk
+```
+
+Kết quả:
+
+```text
+Signed
+DMC_local_v2_signed.apk size = 52,569,585 bytes
+```
+
+Signature verify:
+
+```text
+Verifies
+v1 = true
+v2 = true
+v3 = true
+v3.1 = false
+v4 = false
+Number of signers = 1
+```
+
+Warning hiện tại:
+
+```text
+META-INF/client.txt not protected by signature
+```
+
+Không coi warning này là blocker cho runtime test hiện tại.
+
+Verifier trên signed APK:
 
 ```text
 Login URL: http://192.168.1.14:8000/Server/Webservice/User.asmx
 Direct login patch: OK
 Soha SetUserInfo no-op: OK
 SetUserInfo CodeSize: 41
-SetUserInfo IL: 2a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+SetUserInfo IL: 2a + 40 x 00
 ```
 
-=> **CONFIRMED ARTIFACT:** unsigned APK mới đã chứa SetUserInfo no-op đúng như thiết kế.
+=> **CONFIRMED ARTIFACT:** signed v2 vừa có chữ ký hợp lệ vừa giữ nguyên cả direct-login patch và SetUserInfo no-op.
 
-## 15. Việc cần làm NGAY
+## 16. Việc cần làm NGAY
 
-1. Zipalign unsigned v2:
+1. Cài `DMC_local_v2_signed.apk` vào **LDPlayer 32-bit**.
+2. Clear logcat:
 
 ```bat
-"%LOCALAPPDATA%\Android\Sdk\build-tools\35.0.0\zipalign.exe" -f -p 4 DMC_local_v2_unsigned.apk DMC_local_v2_aligned.apk
+"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 logcat -c
 ```
 
-2. Sign bằng keystore test hiện có:
+3. Mở logcat:
 
 ```bat
-"%LOCALAPPDATA%\Android\Sdk\build-tools\35.0.0\apksigner.bat" sign --ks dmc-test.jks --out DMC_local_v2_signed.apk DMC_local_v2_aligned.apk
+"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 logcat
 ```
 
-3. Verify signed:
+4. Mở game -> Bắt đầu -> Vào Game.
+5. Expected đầu tiên: **không còn** `SohaSDKManager.SetUserInfo -> SohaSDK.setUserConfig NPE`.
+6. Nếu vào `BeginCutsceneForm`, chụp ảnh + kiểm tra server có nhận `/SelectStartNhanVat` khi chọn starter.
+7. Nếu lỗi mới, lấy exact stack rồi xử lý tiếp; không đoán.
+8. Nếu runtime v2 ổn qua starter: tiếp tục Home -> GiangHo -> battle.
 
-```bat
-python tools\verify_client.py DMC_local_v2_signed.apk
-```
-
-Expected vẫn phải `Direct login patch: OK` + `Soha SetUserInfo no-op: OK`.
-
-4. Cài `DMC_local_v2_signed.apk` vào LDPlayer 32-bit.
-5. Clear logcat, mở game, nhấn Bắt đầu/Vào Game.
-6. Expected: không còn stack `SohaSDKManager.SetUserInfo -> setUserConfig NPE`.
-7. Nếu đi tới `BeginCutsceneForm`, test chọn starter -> `/SelectStartNhanVat` -> Home -> GiangHo -> battle.
-
-## 16. Trạng thái chính xác
+## 17. Trạng thái chính xác
 
 ```text
 CONFIRMED STATIC:
@@ -260,16 +291,16 @@ CONFIRMED RUNTIME (LDPlayer 32-bit):
   old blocker = SohaSDK SetUserInfo NPE
 
 CONFIRMED ARTIFACT:
-  DMC_local_v2_unsigned.apk
-  direct-login OK
-  SetUserInfo no-op OK
-  CodeSize=41; IL=RET + NOP padding
+  DMC_local_v2_unsigned.apk patch OK
+  DMC_local_v2_signed.apk signature v1/v2/v3 OK
+  signed APK direct-login OK
+  signed APK SetUserInfo no-op OK
 
 RUNTIME RETEST PENDING:
-  signed v2 -> install -> confirm old Soha NPE gone
+  install signed v2 -> confirm old Soha NPE gone -> BeginCutsceneForm
 ```
 
-## 17. Quy tắc bắt buộc
+## 18. Quy tắc bắt buộc
 
 - Luôn phân biệt `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
 - Không commit APK/full asset dump/keystore.
