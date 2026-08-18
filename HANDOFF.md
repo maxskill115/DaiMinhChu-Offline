@@ -121,7 +121,7 @@ GiangHo `Nhiemvu` là JSON-string array `{S,T}`; embedded structure: 92 chapter 
 
 ## 9. Tests — SERVER TESTED
 
-11 unit tests pass trên Windows 2026-08-18.
+11 unit tests pass trên Windows 2026-08-18 trước khi thêm các compatibility stub mới.
 
 Encrypted HTTP smoke pass:
 
@@ -148,130 +148,181 @@ APK gốc + patched đều crash gần Unity/OpenGL init. Không dùng cho test 
 
 ### LDPlayer 32-bit
 
-Client boot và chạy thật:
-
-```text
-/Login -> /CheckUser -> /GetUserInfo
-```
-
 ADB serial hiện tại:
 
 ```text
 127.0.0.1:5601
 ```
 
-## 12. Runtime blocker cũ — CONFIRMED RUNTIME
+## 12. Runtime blocker cũ — ĐÃ VƯỢT QUA
 
-Sau `/GetUserInfo`:
-
-```text
-AndroidJavaException: java.lang.NullPointerException
-SohaSDK.setUserConfig(...) on a null object reference
-at SohaSDKManager.SetUserInfo(...)
-at HTTP+<WaitForGetUserInfo>c__IteratorC4.MoveNext()
-```
-
-=> blocker là legacy Soha SDK bridge.
-
-## 13. Artifact diagnosis cũ
-
-Bản signed cũ và `base.apk` pull từ LDPlayer đều có direct-login patch nhưng SetUserInfo no-op **MISSING**. Đã loại trừ cache/cài nhầm; lỗi nằm ở patch artifact.
-
-## 14. PATCHER FIX — CONFIRMED ARTIFACT
-
-Commits:
+Blocker cũ sau `/GetUserInfo` là:
 
 ```text
-59c87cf4  Fix SetUserInfo patch and verify output APK
-c30790a1  Update verifier for padded SetUserInfo no-op
-dc65546b  Cập nhật HANDOFF
+SohaSDKManager.SetUserInfo -> SohaSDK.setUserConfig -> NPE
 ```
 
-Unsigned v2:
+Signed v2 đã patch đúng và runtime mới **vượt qua blocker này**.
+
+## 13. PATCHER / SIGNED V2 — CONFIRMED ARTIFACT
+
+Unsigned + signed v2 đều verify:
 
 ```text
-DMC_local_v2_unsigned.apk
-Direct login patch: OK
-Soha SetUserInfo no-op: OK
-SetUserInfo CodeSize: 41
-SetUserInfo IL: 2a 00 00 ... 00
-```
-
-Patched Assembly-CSharp SHA256:
-
-```text
-bd5f89c6db69ba852fb46789e5d2dd193b46a51a6f64c1b94efdb16e75e61b66
-```
-
-## 15. SIGNED V2 — CONFIRMED ARTIFACT
-
-`apksigner.bat` wrapper trên máy user không tạo output nhưng cũng không in lỗi. Chạy trực tiếp jar hoạt động:
-
-```bat
-java -jar "%LOCALAPPDATA%\Android\Sdk\build-tools\35.0.0\lib\apksigner.jar" sign --verbose --ks dmc-test.jks --ks-key-alias dmc --out DMC_local_v2_signed.apk DMC_local_v2_aligned.apk
-```
-
-Kết quả:
-
-```text
-Signed
-DMC_local_v2_signed.apk size = 52,569,585 bytes
-```
-
-Signature verify:
-
-```text
-Verifies
-v1 = true
-v2 = true
-v3 = true
-v3.1 = false
-v4 = false
-Number of signers = 1
-```
-
-Warning hiện tại:
-
-```text
-META-INF/client.txt not protected by signature
-```
-
-Không coi warning này là blocker cho runtime test hiện tại.
-
-Verifier trên signed APK:
-
-```text
-Login URL: http://192.168.1.14:8000/Server/Webservice/User.asmx
 Direct login patch: OK
 Soha SetUserInfo no-op: OK
 SetUserInfo CodeSize: 41
 SetUserInfo IL: 2a + 40 x 00
 ```
 
-=> **CONFIRMED ARTIFACT:** signed v2 vừa có chữ ký hợp lệ vừa giữ nguyên cả direct-login patch và SetUserInfo no-op.
+Signed APK:
 
-## 16. Việc cần làm NGAY
-
-1. Cài `DMC_local_v2_signed.apk` vào **LDPlayer 32-bit**.
-2. Clear logcat:
-
-```bat
-"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 logcat -c
+```text
+DMC_local_v2_signed.apk
+size = 52,569,585 bytes
+v1 = true
+v2 = true
+v3 = true
 ```
 
-3. Mở logcat:
+`apksigner.bat` wrapper trên máy user không tạo output; chạy trực tiếp `apksigner.jar` thì ký thành công.
 
-```bat
-"C:\LDPlayer\OSLink\1.3.22.3_20251203110251\adb.exe" -s 127.0.0.1:5601 logcat
+## 14. MỐC RUNTIME MỚI — CONFIRMED: ĐÃ VÀO STARTER -> HOME
+
+Runtime log mới trên LDPlayer 32-bit:
+
+```text
+Form StartForm active
+Form LoginForm active
+Form SelectServerForm active
+Form BeginCutsceneForm active
+Form BeginCutsceneForm deactive
+Form HomeForm active
 ```
 
-4. Mở game -> Bắt đầu -> Vào Game.
-5. Expected đầu tiên: **không còn** `SohaSDKManager.SetUserInfo -> SohaSDK.setUserConfig NPE`.
-6. Nếu vào `BeginCutsceneForm`, chụp ảnh + kiểm tra server có nhận `/SelectStartNhanVat` khi chọn starter.
-7. Nếu lỗi mới, lấy exact stack rồi xử lý tiếp; không đoán.
-8. Nếu runtime v2 ổn qua starter: tiếp tục Home -> GiangHo -> battle.
+=> **CONFIRMED RUNTIME:** client đã vào được màn chọn starter, chọn starter thành công và vào Home. Đây là mốc lớn: login/local AES/client patch/backend first-character đều hoạt động thật.
 
-## 17. Trạng thái chính xác
+Ảnh runtime cho thấy Home hiển thị tài khoản `Offline`, level 1, tài nguyên và các menu game.
+
+## 15. Runtime discovery: nhiều chức năng khác chưa có endpoint
+
+User xác nhận hiện tại **Giang Hồ hoạt động**, còn nhiều menu khác chưa hoạt động.
+
+Log + ảnh đã xác nhận ít nhất các request còn thiếu:
+
+```text
+User.asmx/GetSystemHighLight
+Battle.asmx/GetMiniBossInfo
+User.asmx/LayNhanVat
+```
+
+Cụ thể:
+
+- `HomeForm` active -> gọi `/GetSystemHighLight` -> trước đây HTTP 404 -> Unity `java.io.FileNotFoundException`.
+- `LuyenCongForm` active -> gọi `/GetMiniBossInfo` -> trước đây HTTP 404.
+- Chợ/thu nhận đệ tử -> gọi `/LayNhanVat` -> ảnh runtime hiển thị `FileNotFoundException` endpoint này.
+
+Giang Hồ runtime:
+
+```text
+Form GiangHoForm active
+Request start GiangHO : 0 - 0
+Form BattleForm active
+BattleReplay JSON được client nhận/parse
+```
+
+Có log:
+
+```text
+Can not get nhiem vu Info from giang ho 0, nhiem vu 0
+```
+
+nhưng BattleReplay vẫn được nhận và battle chạy; cần xử lý config/progression riêng sau.
+
+## 16. SERVER 0.5 — compatibility endpoints mới IMPLEMENTED (RUNTIME RETEST PENDING)
+
+Đã thêm vào `server/app.py`:
+
+```text
+/GetSystemHighLight
+/GetMiniBossInfo
+/LayNhanVat
+```
+
+Trạng thái chính xác:
+
+### GetSystemHighLight
+
+**CONFIRMED RUNTIME endpoint name**, response hiện là empty compatibility snapshot:
+
+```json
+{
+  "ErrorCode": 1,
+  "ErrorMsg": "",
+  "SystemHighLightList": [],
+  "SystemHighLight": []
+}
+```
+
+`SystemHighLightList` là symbol đã thấy trong Assembly-CSharp. Mục tiêu trước mắt là bỏ 404/popup; chưa tái tạo hoạt động/event thật.
+
+### GetMiniBossInfo
+
+**CONFIRMED RUNTIME endpoint name**, hiện trả empty/no-event snapshot để bỏ 404. Chưa phải MiniBoss gameplay hoàn chỉnh.
+
+### LayNhanVat
+
+**CONFIRMED RUNTIME endpoint name**, hiện trả current hero/account snapshot, không trừ vàng và chưa random/thêm đệ tử mới. Đây chỉ là compatibility stub, chưa được coi chức năng Chợ/thu nhận đã hoàn chỉnh.
+
+Server version tăng:
+
+```text
+DMCOffline/0.5
+```
+
+Unknown route giờ được log rõ:
+
+```text
+Unhandled route: <path>
+```
+
+Commits:
+
+```text
+208b8ef1  Thêm các endpoint runtime còn thiếu
+e9042395  Test các endpoint runtime mới
+```
+
+Test file đã thêm test registration/safe response cho 3 route mới. Cần user `git pull` rồi chạy unit tests trên Windows để xác nhận tổng số test mới pass.
+
+## 17. Việc cần làm NGAY
+
+1. User chạy:
+
+```bat
+cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
+git pull
+cd server
+python -m unittest -v
+```
+
+2. Restart server local để nạp app.py 0.5.
+3. Không cần build APK lại; client v2 hiện tại dùng được.
+4. Mở game -> vào Home -> thử lại:
+   - Home/Hoạt động
+   - Luyện Công
+   - Chợ/Thu nhận
+5. Quan sát server console + logcat. Mục tiêu trước mắt:
+
+```text
+không còn HTTP 404/FileNotFoundException cho 3 endpoint trên
+```
+
+6. Nếu response shape chưa đúng và client báo NullReference/LitJson lỗi, reverse chính DTO đó rồi sửa minimal schema; không đoán thêm field hàng loạt.
+7. Click tuần tự các menu khác để lấy danh sách endpoint runtime thật. Mỗi endpoint mới: log request JSON -> reverse DTO -> implement fixture -> test -> runtime retest.
+8. Tiếp tục ưu tiên chức năng core theo thứ tự: Đội hình/Đệ tử -> Võ công/Trang bị -> Chợ/recruit -> Luyện công -> Kỳ ngộ/Hoạt động. Các hệ PvP/liên server để sau.
+
+## 18. Trạng thái chính xác
 
 ```text
 CONFIRMED STATIC:
@@ -279,30 +330,33 @@ CONFIRMED STATIC:
 
 SERVER IMPLEMENTED:
   login/user/start hero/battle/save/progression
+  + compatibility stubs: GetSystemHighLight, GetMiniBossInfo, LayNhanVat
 
 SERVER TESTED:
-  AES + HTTP chain + persistence + mission unlock
+  core AES + HTTP chain + persistence + mission unlock
+  new 0.5 tests committed, Windows rerun pending
 
 CONFIRMED RUNTIME (LDPlayer 32-bit):
-  APK boot
+  patched APK boot
   /Login
   /CheckUser
-  /GetUserInfo transport/decrypt
-  old blocker = SohaSDK SetUserInfo NPE
+  /GetUserInfo
+  BeginCutsceneForm
+  SelectStartNhanVat
+  HomeForm
+  GiangHoForm
+  BattleForm + BattleReplay parse/run
 
-CONFIRMED ARTIFACT:
-  DMC_local_v2_unsigned.apk patch OK
-  DMC_local_v2_signed.apk signature v1/v2/v3 OK
-  signed APK direct-login OK
-  signed APK SetUserInfo no-op OK
-
-RUNTIME RETEST PENDING:
-  install signed v2 -> confirm old Soha NPE gone -> BeginCutsceneForm
+CURRENT LIMITATION:
+  đa số feature server endpoints chưa được dựng
+  GiangHo là feature gameplay đầu tiên chạy được
+  3 endpoint 404 đầu tiên đã có stub, runtime retest pending
 ```
 
-## 18. Quy tắc bắt buộc
+## 19. Quy tắc bắt buộc
 
 - Luôn phân biệt `CONFIRMED STATIC`, `SERVER TESTED`, `CONFIRMED RUNTIME`, `HYPOTHESIS`.
 - Không commit APK/full asset dump/keystore.
+- Không gọi compatibility stub là feature hoàn chỉnh.
 - Ưu tiên flow nhỏ, deterministic, testable.
 - **Sau mỗi mốc quan trọng phải cập nhật HANDOFF**.
