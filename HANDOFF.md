@@ -64,28 +64,9 @@ f498f51f  Fix GET transport and lowercase error semantics
 ```
 
 ## 6. Unit-test regression sau khi user pull 0.11 — đã sửa trên repo
-User chạy `python -m unittest -v` và có **5 failures**, nhưng cả 5 đều là **test cũ còn kỳ vọng convention 0.10**, không phải app handler hỏng:
+User chạy `python -m unittest -v` và có **5 failures**, nhưng cả 5 đều là **test cũ còn kỳ vọng convention 0.10**, không phải app handler hỏng.
 
-```text
-test_known_runtime_read_routes_have_specific_handlers
-test_create_lien_minh_is_controlled_failure_not_fake_success
-test_known_read_routes_return_success
-test_lay_nhan_vat_exact_response_fields_and_adds_hero
-test_system_highlight_exact_dto_shape
-```
-
-Trong cùng run, regression test mới đã pass:
-
-```text
-test_chat_get_legacy_http_get_returns_encrypted_success ... ok
-test_generic_static_fallback_fails_both_error_conventions ... ok
-test_lowercase_error_code_zero_is_success_for_recruit ... ok
-test_lowercase_read_success_and_controlled_failure ... ok
-```
-
-=> implementation 0.11 phù hợp với convention mới; test suite cũ cần đồng bộ.
-
-Đã sửa:
+Regression test mới đã pass, sau đó test cũ đã được đồng bộ ở:
 
 ```text
 a579d845  Sửa test audit theo quy ước errorCode lowercase
@@ -93,35 +74,58 @@ a579d845  Sửa test audit theo quy ước errorCode lowercase
 ```
 
 Các expectation mới:
-
 - lowercase read/recruit success => `errorCode == 0`;
 - `CreateLienMinh` controlled failure => `errorCode == 1`;
 - uppercase read success => `ErrorCode == 1`;
 - `GetTongKimInfo` không có error-code field.
 
-User cần pull lại và chạy test lần nữa; mục tiêu là toàn bộ 33 tests `OK`.
+## 7. Runtime sweep 14:30 — dữ liệu mới
+User gửi logcat mới 749 dòng.
 
-## 7. Runtime lỗi còn lại từ log 14:01
-### Kỳ Ngộ
-Vẫn **CONFIRMED RUNTIME**:
+### 7.1 ChatGet vẫn FileNotFound
+**CONFIRMED RUNTIME trong log 14:30:**
 
 ```text
-NullReferenceException
-KyNgoForm.CreateDocCoPage
-KyNgoForm.CreateNormalPage
-KyNgoForm.CreateUI
-KyNgoForm.SyncWithNetworkData
+Form LuyenCongForm is active
+java.io.FileNotFoundException:
+http://192.168.1.14:8000/Server/Webservice/User.asmx/ChatGet
 ```
 
-### Luyện Công
-Logcat cũ có `/ChatGet` 404; 0.11 đã fix transport nhưng runtime retest pending.
-Ngoài ra có 2 lần client hiển thị `Offline backend: endpoint recognised but DTO/gameplay is not reconstructed yet`; cần console server để lấy exact endpoint names.
+Xuất hiện ít nhất 2 lần (14:30:46 và 14:30:57).
 
-### Mở tướng
-0.10: không crash nhưng bấm Thu nhận không hiện gì. 0.11 đổi `LayNhanVat.errorCode` thành 0 success; runtime retest pending.
+Điều này **mâu thuẫn trực tiếp** với regression test 0.11 (`GET /ChatGet` trả 200 encrypted). Khả năng cao nhất: process server đang phục vụ runtime vẫn là **server 0.10/cũ** hoặc chưa restart sau pull. Trước khi sửa app.py thêm, phải xác nhận `GET /health` đúng process đang chạy báo `DMCOffline/0.11` và console startup của chính process đó.
 
-### Cửa hàng / Lễ bao
-Ảnh runtime cho thấy popup `Mua lễ bao thành công` nhưng reward trống. `BuyLeBao` vẫn chưa reverse exact DTO/semantics.
+### 7.2 NienThu có blocker data thật
+**CONFIRMED RUNTIME:** mở `NienThuForm` gây:
+
+```text
+KeyNotFoundException
+Dictionary<string,int>.get_Item
+NienThuItem.SetGUI(HTTPNienThuResponse)
+NienThuForm.SetGUI
+NienThuForm.SyncWithNetworkData
+```
+
+Sau đó `NienThuItem.Update()` lặp lại KeyNotFoundException nhiều lần.
+
+`AutoTuLinhPopup -> StartAutoNienThu -> StartGame` cũng bị `Dictionary<string,int>.get_Item` KeyNotFound.
+
+=> `HTTPNienThuResponse` root DTO đúng tên field nhưng **giá trị semantic hiện không hợp lệ với dictionary/config client**. Cần reverse IL `NienThuItem.SetGUI` / `AutoTuLinhPopup.StartGame` để biết exact dictionary key/value, không nên đoán.
+
+### 7.3 Unsupported endpoint vẫn xuất hiện
+Logcat có 2 lần:
+
+```text
+Offline backend: endpoint recognised but DTO/gameplay is not reconstructed yet
+```
+
+quanh lúc NienThu đang active. Logcat không cho biết endpoint name; cần console server dòng `STATIC-KNOWN UNSUPPORTED ...` để xác định chính xác.
+
+### 7.4 Mở tướng chưa được đánh giá trong log này
+Không tìm thấy chuỗi `LayNhanVat` trong logcat 14:30, nên chưa được phép kết luận recruit 0.11 đã thành công hay thất bại từ file này.
+
+### 7.5 Không có NullReference trong log 14:30
+Không tìm thấy `NullReferenceException`; blocker nổi bật của vòng này là FileNotFound ChatGet + KeyNotFound NienThu.
 
 ## 8. Giang Hồ — PARTIAL
 Minimal BattleReplay chạy runtime nhưng chưa phải nội dung gốc. Đã persist Bạc + account EXP + hero EXP. NPC fixture thay đổi theo ải, nhưng roster/item/combat script/reward gốc chưa map từ config.
@@ -135,32 +139,34 @@ Exact endpoints:
 
 `DanhNhanhGiangHo` đã có exact root DTO static; runtime retest pending.
 
-## 9. Việc user cần làm tiếp
+## 9. Việc cần làm NGAY
+Trước khi sửa tiếp server vì `ChatGet`, xác nhận process runtime thực sự là 0.11:
 
-```bat
-cd /d "F:\Downloads\img\đạiminhchủ\DaiMinhChu-Offline"
-git pull
-cd server
-python -m unittest -v
+```text
+http://127.0.0.1:8000/health
 ```
 
-Nếu toàn bộ 33 tests `OK`:
+phải báo `server_version = DMCOffline/0.11`.
 
-```bat
-set DMC_BASE_URL=http://192.168.1.14:8000
-python app.py
+Nếu không phải: tắt process cũ và restart server sau pull.
+
+Nếu health đúng 0.11 mà client vẫn ChatGet 404, lúc đó lấy **console server** đúng thời điểm mở Luyện Công để xem request method/path thực tế và sửa transport tiếp.
+
+Đồng thời cần reverse static IL cho:
+
+```text
+NienThuItem.SetGUI
+AutoTuLinhPopup.StartGame / StartAutoNienThu
 ```
 
-`/health` phải báo `DMCOffline/0.11`.
+để dựng giá trị NienThu hợp lệ thay vì placeholder `1`/rỗng.
 
-Sau đó runtime retest:
-
-1. Mở tướng / Thu nhận.
-2. Luyện Công — xác nhận `ChatGet` không còn FileNotFound.
-3. Lấy console server `STATIC-KNOWN UNSUPPORTED` để xác định exact endpoint còn thiếu DTO.
-4. Giang Hồ + Đánh nhanh 10 lần.
-5. BuyLeBao.
-6. Kỳ Ngộ.
+Runtime retest tiếp theo chỉ cần:
+1. xác nhận `/health` version;
+2. Mở tướng / Thu nhận;
+3. Luyện Công;
+4. NienThu;
+5. gửi logcat + console server cùng thời điểm.
 
 ## 10. APK workspace / GM
 - `tools/apk_workspace.py`: unpack/scan/repack raw APK; Unity serialized assets vẫn cần AssetRipper/UABE/UnityPy cho texture/audio/animation/effect/prefab.
