@@ -33,6 +33,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("dmc-local")
 
 _ZERO_TIME = "2000-01-01T00:00:00"
+_LOWER_OK = 0
+_LOWER_ERROR = 1
 
 
 def _battle_vogia(code: str, hp: int) -> dict:
@@ -62,12 +64,11 @@ def _select_start_nhan_vat_response(request: dict) -> dict:
 
 
 def _system_highlight_response(_: dict) -> dict:
-    # HTTPSystemHighLightRespone exact public fields from Assembly-CSharp.dll.
-    return {"highLightQuery": [], "errorCode": 1, "errorMsg": ""}
+    # Lower-case HTTP_ERROR_CODE family: runtime evidence shows default 0 entered success callbacks.
+    return {"highLightQuery": [], "errorCode": _LOWER_OK, "errorMsg": ""}
 
 
 def _mini_boss_info_response(_: dict) -> dict:
-    # HTTPMiniBossResponse exact properties. Keep collections non-null.
     return {
         "QueueHits": [], "NextTime": _ZERO_TIME,
         "MauBoss": 0, "MauBossOrig": 0,
@@ -87,9 +88,13 @@ def _pick_recruit_code() -> str:
 
 
 def _lay_nhan_vat_response(_: dict) -> dict:
-    # HTTPLayNhanVatRespone exact fields are:
+    # HTTPLayNhanVatRespone exact fields:
     # errorCode, errorMsg, ListEventHon, GetIdx, UpdateUserInfo.
-    # Runtime callback passes response.errorMsg as code_name into SetByName().
+    # CONFIRMED RUNTIME before 0.10: when lower-case errorCode was absent it
+    # defaulted to 0 and WaitForLayNhanVat entered the success callback, then
+    # crashed because errorMsg/code_name was empty. Therefore 0 is success for
+    # this lower-case enum family; 0.10 incorrectly returned 1 and silently took
+    # the non-success path.
     code = _pick_recruit_code()
     owned = {str(x.get("Name")) for x in STORE.all_heroes_payload() if isinstance(x, dict)}
     if code not in owned:
@@ -100,7 +105,7 @@ def _lay_nhan_vat_response(_: dict) -> dict:
             "Noicong": stats["Noicong"], "VoCong1Level": 1, "KyNgoCocLevel": 1,
         })
     return {
-        "errorCode": 1,
+        "errorCode": _LOWER_OK,
         "errorMsg": code,
         "ListEventHon": [],
         "GetIdx": 0,
@@ -109,36 +114,30 @@ def _lay_nhan_vat_response(_: dict) -> dict:
 
 
 def _unsupported_static_response(_: dict) -> dict:
-    # IMPORTANT: for a statically-known endpoint whose success DTO is not yet
-    # reconstructed, do not lie with ErrorCode=1. A fake success caused many
-    # client NullReferenceExceptions because success callbacks dereference data.
-    return {
-        "ErrorCode": 0,
-        "ErrorMsg": "Offline backend: endpoint recognised but DTO/gameplay is not reconstructed yet",
-        "errorCode": 0,
-        "errorMsg": "Offline backend: endpoint recognised but DTO/gameplay is not reconstructed yet",
-    }
+    # Two legacy error-code conventions coexist in this client:
+    #   ErrorCode  : 1=success, 0=failure
+    #   errorCode  : 0=success, non-zero=failure
+    # Return failure in BOTH conventions so a statically-known but unreversed
+    # endpoint never accidentally enters a success callback and dereferences
+    # missing DTO data.
+    message = "Offline backend: endpoint recognised but DTO/gameplay is not reconstructed yet"
+    return {"ErrorCode": 0, "ErrorMsg": message, "errorCode": _LOWER_ERROR, "errorMsg": message}
 
 
 def _get_info_lien_minh_response(_: dict) -> dict:
-    # HTTPGetInfoLienMinhResponse exact fields.
-    return {"errorCode": 1, "errorMsg": "", "lienMinhInfo": None}
+    return {"errorCode": _LOWER_OK, "errorMsg": "", "lienMinhInfo": None}
 
 
 def _create_lien_minh_response(_: dict) -> dict:
-    # Exact response fields; keep this controlled-failure until alliance state is implemented.
     return {"lienMinh": None, "lienMinhAccount": None, "info": None,
-            "errorCode": 0, "errorMsg": "Liên minh offline chưa được tạo dữ liệu"}
+            "errorCode": _LOWER_ERROR, "errorMsg": "Liên minh offline chưa được tạo dữ liệu"}
 
 
 def _chat_get_response(_: dict) -> dict:
-    # HTTPChatGetResponse exact fields.
-    return {"chatQuery": [], "errorCode": 1, "errorMsg": ""}
+    return {"chatQuery": [], "errorCode": _LOWER_OK, "errorMsg": ""}
 
 
 def _get_anh_hung_bang_response(_: dict) -> dict:
-    # HTTPLuanKiemBangResponse exact properties. This is an empty ranking with
-    # non-null primitive state rather than the previous unrelated generic stub.
     return {
         "AnhHungBang": [], "ThuHang": 0, "DiemTichLuy": 0, "LuotLuanKiem": 0,
         "lastTimeGetDiem": _ZERO_TIME,
@@ -151,7 +150,6 @@ def _get_anh_hung_bang_response(_: dict) -> dict:
 
 
 def _get_dong_nhan_info_response(_: dict) -> dict:
-    # HTTPDongNhanResponse exact properties.
     return {
         "QueueHits": [], "LastTime": _ZERO_TIME,
         "LevelDongNhan": 1, "MauDongNhan": 1, "MauDongNhanOrig": 1,
@@ -167,7 +165,6 @@ def _empty_huyet_chien_opponent() -> dict:
 
 
 def _get_huyet_chien_info_response(_: dict) -> dict:
-    # HTTPGetHuyetChienInfoResponse + HuyetChienProfile exact field names.
     profile = {
         "AId": 1, "LastSao": 0, "Luot": 0, "Level": 1, "Sao": 0, "SaoThua": 0,
         "BestLevel": 0, "BestLevelSao": 0, "BestSao": 0, "SaoRecords": {}, "SaoTrongAi": 0,
@@ -179,13 +176,12 @@ def _get_huyet_chien_info_response(_: dict) -> dict:
         "TangThuocTinh1": 0, "TangThuocTinh2": 0, "TangThuocTinh3": 0,
         "RecordInTop": 0, "DuDoan": 0,
     }
-    phan_thuong = {"errorCode": 1, "errorMsg": "", "PhanThuongList": [],
+    phan_thuong = {"errorCode": _LOWER_OK, "errorMsg": "", "PhanThuongList": [],
                    "UpdateUserInfo": STORE.user_info_payload()}
     return {"Profile": profile, "Top": 0, "PhanThuong": phan_thuong, "ErrorCode": 1, "ErrorMsg": ""}
 
 
 def _get_nien_thu_info_response(_: dict) -> dict:
-    # HTTPNienThuResponse exact properties.
     return {
         "QueueHits": [], "LastTime": _ZERO_TIME, "LevelNienThu": 1,
         "MauLong": 1, "MauLan": 1, "MauQuy": 1, "MauPhung": 1,
@@ -198,15 +194,13 @@ def _get_nien_thu_info_response(_: dict) -> dict:
 
 
 def _get_van_tieu_info_response(_: dict) -> dict:
-    # HTTPGetVanTieuInfoResponse exact public fields.
     return {"maxVanTieu": 0, "thoiGian": "", "soLuotMienPhi": 0, "knb": 0,
-            "vanTieu": [], "cuopTieuLog": [], "errorCode": 1, "errorMsg": ""}
+            "vanTieu": [], "cuopTieuLog": [], "errorCode": _LOWER_OK, "errorMsg": ""}
 
 
 def _ngu_nhac_get_info_response(_: dict) -> dict:
-    # HTTPGetNguNhacInfoResponse exact fields and non-null nested containers.
     return {
-        "errorCode": 1, "errorMsg": "",
+        "errorCode": _LOWER_OK, "errorMsg": "",
         "kiemTranInfo": {"aidF": [], "NguNhacIndex": 0, "SoLuot": 0, "SoLuotMua": 0},
         "knbVuotNhanh": 0,
         "biBaoShopInfo": {"BiBaoShop": [], "PTNguNhac1": [], "PTNguNhac2": [],
@@ -216,7 +210,6 @@ def _ngu_nhac_get_info_response(_: dict) -> dict:
 
 
 def _get_tong_kim_info_response(_: dict) -> dict:
-    # HTTPGetTongKimResponse exact public fields.
     return {"huongDan": "", "listBoss": []}
 
 
@@ -229,17 +222,16 @@ def _refresh_diem_luan_kiem_response(_: dict) -> dict:
 
 
 def _get_info_bang_chien_response(_: dict) -> dict:
-    # HTTPGetInfoBangChienResponse exact fields.
     return {"timeBangChien": 0, "giaiBangChien": [], "boTranBangChien": [],
             "ErrorCode": 1, "ErrorMsg": ""}
 
 
 def _find_lien_minh_response(_: dict) -> dict:
-    return {"danhSachLM": [], "errorCode": 1, "errorMsg": ""}
+    return {"danhSachLM": [], "errorCode": _LOWER_OK, "errorMsg": ""}
 
 
 def _get_thanh_vien_lien_minh_response(_: dict) -> dict:
-    return {"danhSachThanhVien": [], "danhSachXinGiaNhap": [], "errorCode": 1, "errorMsg": ""}
+    return {"danhSachThanhVien": [], "danhSachXinGiaNhap": [], "errorCode": _LOWER_OK, "errorMsg": ""}
 
 
 def _giangho_enemy(chapter_idx: int, mission_idx: int, player_code: str) -> tuple[str, int]:
@@ -299,8 +291,6 @@ def _giang_ho_response(request: dict) -> dict:
 
 
 def _danh_nhanh_giang_ho_response(request: dict) -> dict:
-    # HTTPDanhNhanhGiangHoResponse exact properties are Rewards, GiangHoIdx,
-    # NhiemVuIdx, UpdateUserInfo, ErrorCode, ErrorMsg.
     giang_ho_idx = int(request.get("giangHoIdx", request.get("GiangHoIdx", 0)) or 0)
     nhiem_vu_idx = int(request.get("nhiemVuIdx", request.get("NhiemVuIdx", 0)) or 0)
     count = int(request.get("Count", request.get("count", request.get("SoLan", 10))) or 10)
@@ -359,8 +349,18 @@ ROUTES = {
 }
 
 
+def _handler_for_path(path: str):
+    route_name = path.rstrip("/").rsplit("/", 1)[-1].lower()
+    handler = ROUTES.get(route_name)
+    is_static_stub = False
+    if handler is None and route_name in STATIC_ENDPOINTS_LOWER:
+        handler = _unsupported_static_response
+        is_static_stub = True
+    return route_name, handler, is_static_stub
+
+
 class DMCHandler(BaseHTTPRequestHandler):
-    server_version = "DMCOffline/0.10"
+    server_version = "DMCOffline/0.11"
 
     def log_message(self, fmt: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], fmt % args)
@@ -380,8 +380,39 @@ class DMCHandler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, obj: dict) -> None:
         self._send_plain(status, json.dumps(obj, ensure_ascii=False), "application/json; charset=utf-8")
 
+    def _serve_game_get(self, parsed) -> bool:
+        route_name, handler, is_static_stub = _handler_for_path(parsed.path)
+        if handler is None:
+            return False
+
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        encrypted = query.get("data", [None])[0]
+        if encrypted:
+            try:
+                request_obj = json.loads(decrypt_text(encrypted))
+            except Exception as exc:
+                log.exception("GET %s: decrypt/JSON failed", parsed.path)
+                self._send_plain(400, f"bad request: {exc}")
+                return True
+        else:
+            # Several legacy read APIs (ChatGet is runtime-confirmed) use WWW GET
+            # with no encrypted form body. Preserve query args if any.
+            request_obj = {k: (v[0] if len(v) == 1 else v) for k, v in query.items()}
+
+        if is_static_stub:
+            log.warning("STATIC-KNOWN UNSUPPORTED GET %s request: %s", parsed.path,
+                        json.dumps(request_obj, ensure_ascii=False))
+        else:
+            log.info("GET %s request: %s", parsed.path, json.dumps(request_obj, ensure_ascii=False))
+        response_obj = handler(request_obj)
+        response_json = json.dumps(response_obj, ensure_ascii=False, separators=(",", ":"))
+        log.info("GET %s response: %s", parsed.path, response_json)
+        self._send_plain(200, encrypt_text(response_json))
+        return True
+
     def do_GET(self) -> None:
-        path = urlparse(self.path).path.rstrip("/") or "/"
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
         if path == "/gm":
             if not self._gm_allowed():
                 self._send_plain(403, "GM tool is localhost-only"); return
@@ -395,6 +426,8 @@ class DMCHandler(BaseHTTPRequestHandler):
                 "user_url": PUBLIC_USER_URL, "battle_url": PUBLIC_BATTLE_URL, "save_file": str(STORE.path),
                 "has_character": bool(STORE.hero_code), "gm_url": f"http://127.0.0.1:{PORT}/gm",
                 "static_endpoint_count": len(STATIC_ENDPOINTS_LOWER), "exact_route_count": len(ROUTES)})
+            return
+        if self._serve_game_get(parsed):
             return
         self._send_plain(404, "not found")
 
@@ -413,12 +446,7 @@ class DMCHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": str(exc)})
             return
 
-        route_name = parsed_path.rsplit("/", 1)[-1].lower()
-        handler = ROUTES.get(route_name)
-        is_static_stub = False
-        if handler is None and route_name in STATIC_ENDPOINTS_LOWER:
-            handler = _unsupported_static_response
-            is_static_stub = True
+        route_name, handler, is_static_stub = _handler_for_path(parsed_path)
         if handler is None:
             log.warning("UNHANDLED UNKNOWN route: %s", parsed_path)
             self._send_plain(404, "not found")
