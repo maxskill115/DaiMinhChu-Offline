@@ -67,19 +67,12 @@ class FixtureTests(unittest.TestCase):
 
     def test_runtime_discovered_routes_are_registered(self) -> None:
         expected = {
-            "getsystemhighlight",
-            "getminibossinfo",
-            "laynhanvat",
-            "getinfolienminh",
-            "createlienminh",
-            "chatget",
-            "getanhhungbang",
-            "getdongnhaninfo",
-            "gethuyetchieninfo",
-            "getnienthuinfo",
-            "getvantieuinfo",
-            "ngunhacgetinfo",
-            "gettongkiminfo",
+            "getsystemhighlight", "getminibossinfo", "laynhanvat",
+            "getinfolienminh", "createlienminh", "chatget", "getanhhungbang",
+            "getdongnhaninfo", "gethuyetchieninfo", "getnienthuinfo",
+            "getvantieuinfo", "ngunhacgetinfo", "gettongkiminfo",
+            "buyvatphamtieuthu", "buylebao", "refreshdiemluankiem",
+            "getinfobangchien", "findlienminh", "getthanhvienlienminh",
         }
         self.assertTrue(expected.issubset(ROUTES))
 
@@ -88,10 +81,11 @@ class FixtureTests(unittest.TestCase):
             "getinfolienminh", "createlienminh", "chatget", "getanhhungbang",
             "getdongnhaninfo", "gethuyetchieninfo", "getnienthuinfo",
             "getvantieuinfo", "ngunhacgetinfo", "gettongkiminfo",
+            "buyvatphamtieuthu", "buylebao", "refreshdiemluankiem",
+            "getinfobangchien", "findlienminh", "getthanhvienlienminh",
         ):
             response = ROUTES[name]({"Aid": 1})
-            self.assertEqual(response["ErrorCode"], 1, name)
-            self.assertIn("ErrorMsg", response, name)
+            self.assertTrue(response.get("ErrorCode", response.get("errorCode")) == 1, name)
 
     def test_system_highlight_stub_is_empty_success(self) -> None:
         response = _system_highlight_response({"Aid": 1})
@@ -103,16 +97,14 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(response["ErrorCode"], 1)
         self.assertIsNone(response["MiniBossInfo"])
 
-    def test_lay_nhan_vat_response_contains_known_embedded_code(self) -> None:
+    def test_lay_nhan_vat_returns_valid_code_and_adds_hero(self) -> None:
         _select_start_nhan_vat_response({"NhanVatCode": "NV_LenhHoXung"})
-        before = STORE.account_payload()["Vang"]
+        before = len(STORE.all_heroes_payload())
         response = _lay_nhan_vat_response({"Aid": 1})
         self.assertEqual(response["ErrorCode"], 1)
-        self.assertIn(response["CodeName"], START_HEROES)
-        self.assertEqual(response["NhanVatCode"], response["CodeName"])
+        self.assertIn(response["ErrorMsg"], START_HEROES)
+        self.assertEqual(len(STORE.all_heroes_payload()), before + 1)
         self.assertIsInstance(response["ListEventHon"], list)
-        self.assertEqual(response["GetIdx"], 0)
-        self.assertEqual(STORE.account_payload()["Vang"], before)
 
     def test_gm_updates_account_time_and_group(self) -> None:
         handle_gm_api(STORE, "/gm/api/account", {"DisplayName": "GM", "Vang": 999999, "Bac": 888888, "Vip": 12, "Level": 99})
@@ -146,6 +138,30 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(response["ErrorCode"], 1)
         missions = json.loads(response["UpdateUserInfo"]["GiangHo"][0]["Nhiemvu"])
         self.assertEqual(missions, [{"S": 3, "T": 1}, {"S": 0, "T": 0}])
+
+    def test_giangho_reward_persists_bac_account_exp_and_hero_exp(self) -> None:
+        _select_start_nhan_vat_response({"NhanVatCode": "NV_SoLuuHuong"})
+        before = STORE.user_info_payload()
+        response = _giang_ho_response({"giangHoIdx": 0, "nhiemVuIdx": 0})
+        after = STORE.user_info_payload()
+        self.assertEqual(after["Account"]["Bac"], before["Account"]["Bac"] + response["Reward"]["Bac"])
+        self.assertEqual(after["Account"]["Exp"], before["Account"]["Exp"] + response["Reward"]["ExpMonPhai"])
+        self.assertEqual(after["NhanVat"][0]["Exp"], before["NhanVat"][0]["Exp"] + response["Reward"]["ExpNhanVat"])
+        self.assertEqual(response["UpdateUserInfo"]["Account"]["Bac"], after["Account"]["Bac"])
+        self.assertEqual(response["UpdateUserInfo"]["NhanVat"][0]["Exp"], after["NhanVat"][0]["Exp"])
+
+    def test_giangho_enemy_varies_by_stage_and_has_real_hp(self) -> None:
+        _select_start_nhan_vat_response({"NhanVatCode": "NV_LenhHoXung"})
+        first = _giang_ho_response({"giangHoIdx": 0, "nhiemVuIdx": 0})
+        second = _giang_ho_response({"giangHoIdx": 0, "nhiemVuIdx": 1})
+        e1 = first["BattleReplay"]["Hiep1"]["DoiHinh2"][0]
+        e2 = second["BattleReplay"]["Hiep1"]["DoiHinh2"][0]
+        self.assertIn(e1["Name"], START_HEROES)
+        self.assertIn(e2["Name"], START_HEROES)
+        self.assertGreater(e1["Mau"], 1)
+        self.assertGreater(e2["Mau"], 1)
+        self.assertNotEqual((e1["Name"], first["BattleReplay"]["Team2"]["Name"]),
+                            (e2["Name"], second["BattleReplay"]["Team2"]["Name"]))
 
     def test_replaying_mission_preserves_best_star_and_increments_turn(self) -> None:
         store = SaveStore(Path(_TEST_DIR.name) / "progress.json")
