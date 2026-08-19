@@ -2,7 +2,7 @@
 
 > **ĐỌC FILE NÀY TRƯỚC KHI TIẾP TỤC Ở CHAT MỚI.** Đây là nguồn trạng thái chính của dự án. Sau mỗi mốc kỹ thuật quan trọng phải cập nhật lại HANDOFF.
 
-**Last updated:** 2026-08-18 (UTC+7)
+**Last updated:** 2026-08-19 (UTC+7)
 
 ## 1. Mục tiêu
 Phục dựng **Đại Minh Chủ Việt Nam 8.0.2** chạy local/offline, giữ client/UI/assets gốc càng nhiều càng tốt. Hướng chính: clean-room local compatibility backend + client patch tối thiểu.
@@ -179,3 +179,22 @@ Runtime retest tiếp theo chỉ cần:
 - Không đoán schema rồi coi như confirmed.
 - Ưu tiên static reverse DTO từ Assembly trước khi bắt user test lại.
 - **Sau mỗi milestone phải cập nhật HANDOFF.md.**
+
+## 12. Plan cho AI agent tiếp tục
+Đã tạo plan chi tiết:
+
+```text
+docs/PLAN_AGENT_NEXT.md
+```
+
+AI agent mới phải đọc `HANDOFF.md` rồi đọc file plan này trước khi code. Plan yêu cầu chuyển hẳn sang hướng **static reverse + tooling + automated tests trước, runtime test sau**, nhằm giảm tối đa số vòng user phải click/test thủ công.
+
+Ưu tiên trong plan:
+
+1. Stabilize server/GET transport và xác minh đúng process 0.11.
+2. Reverse `LayNhanVat` callback để recruit hoạt động thật.
+3. Reverse `NienThuItem.SetGUI` + `AutoTuLinhPopup.StartGame` để tìm exact dictionary/config key thay vì đoán.
+4. Reverse `KyNgoForm` data dependencies.
+5. Làm Giang Hồ theo config thật, quick battle, reward/persistence.
+6. Làm lại Shop/Lễ bao, Luyện Công, Luận Kiếm, Liên Minh/Bang Chiến theo DTO/state thật.
+7. Viết tool dump DTO, endpoint->callback map, config-key inventory và runtime trace JSONL để xử lý hàng loạt thay vì sửa từng endpoint bằng tay.
